@@ -50,14 +50,6 @@ When rules conflict, follow this order strictly:
 
 ### 3. Project Structure
 
-**Web (Next.js)**
-```
-/src/app/*          # App Router (Pages & Layouts)
-/src/components/*   # React components
-/src/lib/*          # Shared helpers & supabase.ts
-/src/services/*     # Business logic & DB queries
-```
-
 **Mobile (React Native)**
 ```
 /mobile/*           # React Native application
