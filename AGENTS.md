@@ -251,6 +251,11 @@ feat: add user authentication
 
 ---
 
+### 6. Notes
+- Don't run directly git commands without the user's permission, always ask for permission when running git commands.
+
+---
+
 ## 🤖 AI USAGE (OPTIONAL)
 
 - Keep prompts simple and deterministic  
