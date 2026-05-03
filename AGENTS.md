@@ -48,16 +48,30 @@ When rules conflict, follow this order strictly:
 
 ---
 
-### 3. Project Structure (Next.js)
+### 3. Project Structure
 
+**Web (Next.js)**
 ```
-/app/*           # App Router
-/components/*    # React components
-/lib/*           # Helper functions & services
-/lib/supabase.ts # Single source of truth for Supabase
+/src/app/*          # App Router (Pages & Layouts)
+/src/components/*   # React components
+/src/lib/*          # Shared helpers & supabase.ts
+/src/services/*     # Business logic & DB queries
+```
+
+**Mobile (React Native)**
+```
+/mobile/*           # React Native application
+/mobile/android/*   # Android native code
+/mobile/ios/*       # iOS native code
+```
+
+**Database (Supabase)**
+```
+/supabase/migrations/* # SQL migration files
 ```
 
 - Business logic MUST NOT exist inside UI components.
+
 
 ---
 
