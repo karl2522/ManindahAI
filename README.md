@@ -1,55 +1,97 @@
-# ManindahAI
+This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
 
-## Problem Statement
-Sari-sari store owners often struggle with manual, handwritten calculations of their daily and monthly revenue. This process is prone to human error, even with multiple manual checks, leading to inaccurate financial records and potential debt. Furthermore, poor inventory tracking results in stockouts of essential goods, such as canned products, driving customers to find cheaper or more reliable alternatives in nearby locations.
+# Getting Started
 
-## Introduction: ManindahAI
-ManindahAI addresses the financial literacy of Filipino sari-sari store owners by developing a mobile-friendly web application. The app allows owners to manage products, calculate profits, and track inventory. Customers can locate nearby stores and view product availability.
+> **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
 
-## Project Scope
-The project aims to empower sari-sari store owners with digital tools for financial management and inventory tracking, while providing customers with a seamless way to find products in their local community.
+## Step 1: Start Metro
 
-## Features
+First, you will need to run **Metro**, the JavaScript build tool for React Native.
 
-### Sari-Sari Store Owner Side
-- **Product Management**: Create and manage product lists with pricing and quantity.
-- **Inventory Management**: Track stock levels and receive low-stock alerts.
-- **Financial Tracking**: Log sales, expenses (rent, utilities, etc.), and view profit/loss summaries.
-- **AI Suggestions**: Receive actionable insights based on sales patterns.
-- **OCR Integration**: Scan handwritten records to automate sales entry.
-- **Supplier Comparison**: Compare prices from different suppliers to maximize profit.
+To start the Metro dev server, run the following command from the root of your React Native project:
 
-### Customer Side
-- **Store Locator**: Search for products and find nearby sari-sari stores.
-- **Community Remarks**: Provide feedback, ratings, and reviews for stores.
+```sh
+# Using npm
+npm start
 
-### Moderator Side
-- **Account & Store Management**: Manage user accounts and store listings.
-- **Content Moderation**: Review and moderate community remarks.
-
----
-
-## Technical Stack
-- **Framework**: [Next.js](https://nextjs.org) (App Router)
-- **Styling**: [Tailwind CSS 4](https://tailwindcss.com)
-- **Database**: [Supabase](https://supabase.com)
-- **Package Manager**: [pnpm](https://pnpm.io)
-
----
-
-## Getting Started
-
-First, install dependencies:
-```bash
-pnpm install
+# OR using Yarn
+yarn start
 ```
 
-Then, run the development server:
-```bash
-pnpm dev
+## Step 2: Build and run your app
+
+With Metro running, open a new terminal window/pane from the root of your React Native project, and use one of the following commands to build and run your Android or iOS app:
+
+### Android
+
+```sh
+# Using npm
+npm run android
+
+# OR using Yarn
+yarn android
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### iOS
 
-## Learn More
-Check out the `AGENTS.md` file for project guidelines and coding standards.
+For iOS, remember to install CocoaPods dependencies (this only needs to be run on first clone or after updating native deps).
+
+The first time you create a new project, run the Ruby bundler to install CocoaPods itself:
+
+```sh
+bundle install
+```
+
+Then, and every time you update your native dependencies, run:
+
+```sh
+bundle exec pod install
+```
+
+For more information, please visit [CocoaPods Getting Started guide](https://guides.cocoapods.org/using/getting-started.html).
+
+```sh
+# Using npm
+npm run ios
+
+# OR using Yarn
+yarn ios
+```
+
+If everything is set up correctly, you should see your new app running in the Android Emulator, iOS Simulator, or your connected device.
+
+This is one way to run your app — you can also build it directly from Android Studio or Xcode.
+
+## Step 3: Modify your app
+
+Now that you have successfully run the app, let's make changes!
+
+Open `App.tsx` in your text editor of choice and make some changes. When you save, your app will automatically update and reflect these changes — this is powered by [Fast Refresh](https://reactnative.dev/docs/fast-refresh).
+
+When you want to forcefully reload, for example to reset the state of your app, you can perform a full reload:
+
+- **Android**: Press the <kbd>R</kbd> key twice or select **"Reload"** from the **Dev Menu**, accessed via <kbd>Ctrl</kbd> + <kbd>M</kbd> (Windows/Linux) or <kbd>Cmd ⌘</kbd> + <kbd>M</kbd> (macOS).
+- **iOS**: Press <kbd>R</kbd> in iOS Simulator.
+
+## Congratulations! :tada:
+
+You've successfully run and modified your React Native App. :partying_face:
+
+### Now what?
+
+- If you want to add this new React Native code to an existing application, check out the [Integration guide](https://reactnative.dev/docs/integration-with-existing-apps).
+- If you're curious to learn more about React Native, check out the [docs](https://reactnative.dev/docs/getting-started).
+
+# Troubleshooting
+
+If you're having issues getting the above steps to work, see the [Troubleshooting](https://reactnative.dev/docs/troubleshooting) page.
+
+# Learn More
+
+To learn more about React Native, take a look at the following resources:
+
+- [React Native Website](https://reactnative.dev) - learn more about React Native.
+- [Getting Started](https://reactnative.dev/docs/environment-setup) - an **overview** of React Native and how setup your environment.
+- [Learn the Basics](https://reactnative.dev/docs/getting-started) - a **guided tour** of the React Native **basics**.
+- [Blog](https://reactnative.dev/blog) - read the latest official React Native **Blog** posts.
+- [`@facebook/react-native`](https://github.com/facebook/react-native) - the Open Source; GitHub **repository** for React Native.

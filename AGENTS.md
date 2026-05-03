@@ -52,9 +52,9 @@ When rules conflict, follow this order strictly:
 
 **Mobile (React Native)**
 ```
-/mobile/*           # React Native application
-/mobile/android/*   # Android native code
-/mobile/ios/*       # iOS native code
+/*           # React Native application
+/android/*   # Android native code
+/ios/*       # iOS native code
 ```
 
 **Database (Supabase)**
