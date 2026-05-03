@@ -53,8 +53,7 @@ When rules conflict, follow this order strictly:
 **Mobile (React Native)**
 ```
 /*           # React Native application
-/android/*   # Android native code
-/ios/*       # iOS native code
+
 ```
 
 **Database (Supabase)**

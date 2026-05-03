@@ -4,36 +4,76 @@ import {
   signOut,
   User,
   getIdToken,
+  GoogleAuthProvider,
+  signInWithPopup
 } from 'firebase/auth';
 import { auth } from '../lib/firebase';
 import { supabase } from '../lib/supabase';
+import { UserService, UserProfile } from './user';
+import { Platform } from 'react-native';
 
 /**
  * Authentication Service
  * 
- * Uses Firebase Auth for identity and handles the syncing of the JWT
- * with Supabase if Supabase is configured to accept Firebase tokens.
+ * Uses Firebase Auth for identity and syncs the user profile
+ * into Supabase after every successful sign-in.
  */
 
 export const AuthService = {
   /**
-   * Register a new user with email and password via Firebase
+   * Register a new user with email and password via Firebase.
+   * Also syncs the new user to the Supabase users table.
    */
-  async registerWithEmail(email: string, password: string): Promise<User> {
+  async registerWithEmail(email: string, password: string): Promise<{ user: User; profile: UserProfile }> {
     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-    return userCredential.user;
+    const user = userCredential.user;
+
+    const profile = await UserService.syncFromFirebase({
+      firebase_uid: user.uid,
+      email: user.email ?? email,
+      name: user.displayName,
+    });
+
+    return { user, profile };
   },
 
   /**
-   * Login with email and password via Firebase
+   * Login with email and password via Firebase.
+   * Also syncs the user to the Supabase users table.
    */
-  async loginWithEmail(email: string, password: string): Promise<User> {
+  async loginWithEmail(email: string, password: string): Promise<{ user: User; profile: UserProfile }> {
     const userCredential = await signInWithEmailAndPassword(auth, email, password);
-    // Optionally: Sync token with Supabase here if you use Supabase custom JWT integration
-    // const token = await userCredential.user.getIdToken();
-    // await supabase.auth.setSession({ access_token: token, refresh_token: '' });
+    const user = userCredential.user;
+
+    const profile = await UserService.syncFromFirebase({
+      firebase_uid: user.uid,
+      email: user.email ?? email,
+      name: user.displayName,
+    });
+
+    return { user, profile };
+  },
+
+  /**
+   * Login with Google OAuth (Web Only for now).
+   * Also syncs the Google user to the Supabase users table.
+   */
+  async loginWithGoogle(): Promise<{ user: User; profile: UserProfile }> {
+    if (Platform.OS !== 'web') {
+      throw new Error("Google Sign-In via Popup is only supported on the Web. Native implementation requires expo-auth-session.");
+    }
     
-    return userCredential.user;
+    const provider = new GoogleAuthProvider();
+    const userCredential = await signInWithPopup(auth, provider);
+    const user = userCredential.user;
+
+    const profile = await UserService.syncFromFirebase({
+      firebase_uid: user.uid,
+      email: user.email ?? '',
+      name: user.displayName,
+    });
+
+    return { user, profile };
   },
 
   /**
@@ -61,3 +101,6 @@ export const AuthService = {
     return auth.currentUser;
   }
 };
+
+
+
