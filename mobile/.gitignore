@@ -98,3 +98,14 @@ auth.json
 !.yarn/releases
 !.yarn/sdks
 !.yarn/versions
+
+# Expo
+.expo/
+dist/
+web-build/
+
+# Firebase Secrets
+google-services.json
+GoogleService-Info.plist
+firebase.json
+package-lock.json
