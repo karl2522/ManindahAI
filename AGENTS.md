@@ -48,16 +48,22 @@ When rules conflict, follow this order strictly:
 
 ---
 
-### 3. Project Structure (Next.js)
+### 3. Project Structure
 
+**Mobile (React Native)**
 ```
-/app/*           # App Router
-/components/*    # React components
-/lib/*           # Helper functions & services
-/lib/supabase.ts # Single source of truth for Supabase
+/*           # React Native application
+/android/*   # Android native code
+/ios/*       # iOS native code
+```
+
+**Database (Supabase)**
+```
+/supabase/migrations/* # SQL migration files
 ```
 
 - Business logic MUST NOT exist inside UI components.
+
 
 ---
 
@@ -234,6 +240,11 @@ feat: add user authentication
   2. Code review complete
   3. No conflicts
   4. All rules followed
+
+---
+
+### 6. Notes
+- Don't run directly git commands without the user's permission, always ask for permission when running git commands.
 
 ---
 
