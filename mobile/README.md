@@ -29,6 +29,11 @@ The project aims to empower sari-sari store owners with digital tools for financ
 
 - **Store Locator**: Search for products and find nearby sari-sari stores.
 - **Community Remarks**: Provide feedback, ratings, and reviews for stores.
+- **Customer can become as Sari-Sari Store Owner**: When the customer account decided to become as Seller and verified as a Sari-Sari Store owner, they can add products to the app.
+
+### Future
+
+- **Customer Chatbot**: AI-powered assistant to help customers find products. - we will later for this.
 
 ### Moderator Side (-later on for web-)
 
