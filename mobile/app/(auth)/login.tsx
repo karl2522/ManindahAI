@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, Alert, Platform } from 'react-native';
 import { useState, useEffect } from 'react';
 import * as Google from 'expo-auth-session/providers/google';
 import * as WebBrowser from 'expo-web-browser';
@@ -14,8 +14,8 @@ export default function LoginScreen() {
   const router = useRouter();
 
   const [, response, promptAsync] = Google.useAuthRequest({
-    webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
-    androidClientId: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID,
+    webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID || 'missing-web-client-id',
+    androidClientId: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID || 'missing-android-client-id',
   });
 
   useEffect(() => {
@@ -52,7 +52,7 @@ export default function LoginScreen() {
     setLoading(true);
     try {
       const { profile } = await AuthService.loginWithEmail(email, password);
-      Alert.alert('Success', `Logged in successfully as ${profile.role}!`);
+      Alert.alert('Success', `Logged in successfully as ${profile.roles?.[0] || 'user'}!`);
       // Navigate to tabs
       router.replace('/(tabs)');
     } catch (error: any) {
@@ -62,8 +62,20 @@ export default function LoginScreen() {
     }
   };
 
-  const handleGoogleLogin = () => {
-    promptAsync();
+  const handleGoogleLogin = async () => {
+    if (Platform.OS === 'web') {
+      setLoading(true);
+      try {
+        const { profile } = await AuthService.loginWithGoogle();
+        router.replace('/(tabs)');
+      } catch (error: any) {
+        Alert.alert('Google Login Error', error.message);
+      } finally {
+        setLoading(false);
+      }
+    } else {
+      promptAsync();
+    }
   };
 
   return (

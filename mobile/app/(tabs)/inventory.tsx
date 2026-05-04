@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import { useQuery, useQueryClient, onlineManager } from '@tanstack/react-query';
 import {
   View,
@@ -10,31 +10,33 @@ import {
   StyleSheet,
   Alert,
   ActivityIndicator,
+  Image,
+  ScrollView,
+  Platform,
 } from 'react-native';
-import { Platform } from 'react-native';
+import { Stack, useRouter } from 'expo-router';
+import { MaterialIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useStore } from '../../src/hooks/useStore';
 import { ProductService, Product } from '../../src/services/product';
 import { InventoryService, LOW_STOCK_THRESHOLD, InventoryChangeType } from '../../src/services/inventory';
-import { addToOutbox } from '../../src/lib/outbox';
+import { theme } from '../../src/theme/theme';
 
 const isTemp = (id: string) => id.startsWith('temp_');
 
-type AdjustOption = {
-  key: InventoryChangeType;
-  label: string;
-  sign: 1 | -1;
-};
-
-const ADJUST_OPTIONS: AdjustOption[] = [
-  { key: 'restock', label: 'Restock (+)', sign: 1 },
-  { key: 'adjustment', label: 'Adjust (+)', sign: 1 },
-  { key: 'loss', label: 'Loss (−)', sign: -1 },
-];
+type ModalMode = 'adjust' | 'edit' | 'add';
 
 export default function InventoryScreen() {
   const { store, loading: storeLoading, error: storeError } = useStore();
+  const router = useRouter();
+  
+  React.useEffect(() => {
+    if (!storeLoading && (storeError || !store)) {
+      router.replace('/(auth)/login');
+    }
+  }, [storeLoading, storeError, store, router]);
   const queryClient = useQueryClient();
+  
   const {
     data: products = [],
     isLoading: loadingProducts,
@@ -46,10 +48,25 @@ export default function InventoryScreen() {
     queryFn: () => ProductService.getByStoreId(store!.store_id),
     enabled: !!store,
   });
+
+  const [searchQuery, setSearchQuery] = useState('');
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
+  const [modalMode, setModalMode] = useState<ModalMode>('adjust');
+  
+  // Adjustment state
   const [changeType, setChangeType] = useState<InventoryChangeType>('restock');
   const [quantityInput, setQuantityInput] = useState('');
+  
+  // Edit & Add state
+  const [editForm, setEditForm] = useState({
+    name: '',
+    selling_price: '',
+    original_price: '',
+    category: '',
+    quantity: '0',
+  });
+
   const [saving, setSaving] = useState(false);
 
   useFocusEffect(
@@ -58,44 +75,106 @@ export default function InventoryScreen() {
     }, [store, refetch])
   );
 
+  const filteredProducts = useMemo(() => {
+    return products
+      .filter(p => p.name.toLowerCase().includes(searchQuery.toLowerCase()))
+      .sort((a, b) => a.quantity - b.quantity);
+  }, [products, searchQuery]);
+
+  const openAddModal = () => {
+    setSelectedProduct(null);
+    setEditForm({
+      name: '',
+      selling_price: '',
+      original_price: '',
+      category: '',
+      quantity: '',
+    });
+    setModalMode('add');
+    setModalVisible(true);
+  };
+
   const openAdjustModal = (product: Product) => {
     setSelectedProduct(product);
     setChangeType('restock');
     setQuantityInput('');
+    setModalMode('adjust');
     setModalVisible(true);
   };
 
-  const handleAdjust = async () => {
-    if (!selectedProduct) return;
-    const qty = parseInt(quantityInput, 10);
-    if (!qty || qty <= 0) {
-      Alert.alert('Validation', 'Enter a quantity greater than 0.');
-      return;
-    }
-    const option = ADJUST_OPTIONS.find((o) => o.key === changeType)!;
-    const delta = qty * option.sign;
+  const openEditModal = (product: Product) => {
+    setSelectedProduct(product);
+    setEditForm({
+      name: product.name,
+      selling_price: String(product.selling_price),
+      original_price: String(product.original_price),
+      category: product.category || '',
+      quantity: String(product.quantity),
+    });
+    setModalMode('edit');
+    setModalVisible(true);
+  };
 
+  const handleSave = async () => {
+    if (!store) return;
     setSaving(true);
     try {
-      if (onlineManager.isOnline()) {
-        await InventoryService.adjustStock(selectedProduct.product_id, delta, changeType);
-        queryClient.invalidateQueries({ queryKey: ['products', store?.store_id] });
-      } else {
-        queryClient.setQueryData<Product[]>(['products', store?.store_id], (old = []) =>
-          old.map((p) =>
-            p.product_id === selectedProduct.product_id
-              ? { ...p, quantity: Math.max(0, p.quantity + delta) }
-              : p
-          )
-        );
-        await addToOutbox({
-          op: 'inventory_adjust',
-          store_id: store!.store_id,
-          product_id: selectedProduct.product_id,
-          delta,
-          change_type: changeType,
-        });
+      if (modalMode === 'add') {
+        const newPayload = {
+          store_id: store.store_id,
+          name: editForm.name.trim(),
+          selling_price: parseFloat(editForm.selling_price) || 0,
+          original_price: parseFloat(editForm.original_price) || 0,
+          quantity: parseInt(editForm.quantity, 10) || 0,
+          category: editForm.category.trim() || undefined,
+        };
+        if (!newPayload.name) throw new Error('Product name is required');
+        
+        if (onlineManager.isOnline()) {
+          await ProductService.create(newPayload);
+        } else {
+          // Manual cache update for offline creation (temporary ID)
+          const tempProduct: Product = {
+            ...newPayload,
+            product_id: `temp_${Date.now()}`,
+            category: newPayload.category || null,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          };
+          queryClient.setQueryData<Product[]>(['products', store.store_id], (old = []) => [...old, tempProduct]);
+        }
+      } else if (modalMode === 'adjust' && selectedProduct) {
+        const qty = parseInt(quantityInput, 10);
+        if (!qty || qty <= 0) throw new Error('Enter a valid quantity');
+        const sign = (changeType === 'restock' || changeType === 'adjustment') ? 1 : -1;
+        const delta = qty * sign;
+
+        if (onlineManager.isOnline()) {
+          await InventoryService.adjustStock(selectedProduct.product_id, delta, changeType);
+        } else {
+          // Manual cache update for offline
+          queryClient.setQueryData<Product[]>(['products', store.store_id], (old = []) =>
+            old.map(p => p.product_id === selectedProduct.product_id ? { ...p, quantity: Math.max(0, p.quantity + delta) } : p)
+          );
+        }
+      } else if (modalMode === 'edit' && selectedProduct) {
+        const updatePayload = {
+          name: editForm.name.trim(),
+          selling_price: parseFloat(editForm.selling_price) || 0,
+          original_price: parseFloat(editForm.original_price) || 0,
+          category: editForm.category.trim() || undefined,
+        };
+
+        if (onlineManager.isOnline()) {
+          await ProductService.update(selectedProduct.product_id, updatePayload);
+        } else {
+          queryClient.setQueryData<Product[]>(['products', store.store_id], (old = []) =>
+            old.map(p => p.product_id === selectedProduct.product_id ? { ...p, ...updatePayload, category: updatePayload.category || null } : p)
+          );
+        }
       }
+      
+      queryClient.invalidateQueries({ queryKey: ['products', store.store_id] });
       setModalVisible(false);
     } catch (e: any) {
       Alert.alert('Error', e.message);
@@ -104,150 +183,197 @@ export default function InventoryScreen() {
     }
   };
 
-  const lowStock = products.filter((p) => p.quantity <= LOW_STOCK_THRESHOLD);
-  const sorted = [...products].sort((a, b) => a.quantity - b.quantity);
-
   if (storeLoading || loadingProducts) {
     return (
-      <View style={styles.centered}>
-        <ActivityIndicator size="large" />
+      <View style={[styles.centered, { backgroundColor: theme.colors.background }]}>
+        <ActivityIndicator size="large" color={theme.colors.primary} />
       </View>
     );
   }
-
-  if (storeError) {
-    return (
-      <View style={styles.centered}>
-        <Text style={styles.errorText}>{storeError}</Text>
-      </View>
-    );
-  }
-
-  if (!store) {
-    return (
-      <View style={styles.centered}>
-        <Text style={styles.emptyText}>No store found.</Text>
-        <Text style={styles.emptyHint}>Set up your store in the Products tab first.</Text>
-      </View>
-    );
-  }
-
-  const openAdjustForProduct = (product: Product) => {
-    if (isTemp(product.product_id)) {
-      if (Platform.OS === 'web') {
-        window.alert('This product is pending sync. Adjust stock after it syncs online.');
-      } else {
-        Alert.alert('Pending Sync', 'This product is pending sync. Adjust stock after it syncs online.');
-      }
-      return;
-    }
-    openAdjustModal(product);
-  };
 
   return (
-    <View style={styles.container}>
-      {(productsHasError || fetchStatus === 'paused') && products.length > 0 && (
-        <View style={styles.offlineBanner}>
-          <Text style={styles.offlineBannerText}>Offline — showing cached data</Text>
-        </View>
-      )}
-      {lowStock.length > 0 && (
-        <View style={styles.alertBanner}>
-          <Text style={styles.alertTitle}>
-            ⚠️  {lowStock.length} item{lowStock.length > 1 ? 's' : ''} running low
+    <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
+      <Stack.Screen options={{ title: 'Stock List' }} />
+
+      <View style={styles.headerContent}>
+        <View style={styles.titleSection}>
+          <Text style={[theme.typography.h1, { color: theme.colors.onSurface }]}>Inventory</Text>
+          <Text style={[theme.typography.bodyLarge, { color: theme.colors.onSurfaceVariant }]}>
+            Manage your store's stock levels intelligently.
           </Text>
-          <Text style={styles.alertItems} numberOfLines={2}>
-            {lowStock.map((p) => p.name).join(' · ')}
+        </View>
+
+        {/* Search Bar */}
+        <View style={styles.searchRow}>
+          <View style={[styles.searchBar, { borderColor: theme.colors.outlineVariant }]}>
+            <MaterialIcons name="search" size={24} color={theme.colors.outline} />
+            <TextInput
+              style={[theme.typography.bodyMedium, styles.searchInput]}
+              placeholder="Search products..."
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              placeholderTextColor={theme.colors.outline}
+            />
+          </View>
+          <TouchableOpacity style={[styles.filterButton, { borderColor: theme.colors.outlineVariant }]}>
+            <MaterialIcons name="tune" size={24} color={theme.colors.onSurfaceVariant} />
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Offline Banner */}
+      {(productsHasError || fetchStatus === 'paused') && products.length > 0 && (
+        <View style={[styles.offlineBanner, { backgroundColor: theme.colors.errorContainer }]}>
+          <MaterialIcons name="cloud-off" size={16} color={theme.colors.onErrorContainer} />
+          <Text style={[theme.typography.labelMedium, { color: theme.colors.onErrorContainer, marginLeft: 8 }]}>
+            Offline — showing cached data
           </Text>
         </View>
       )}
 
       <FlatList
-        data={sorted}
+        data={filteredProducts}
         keyExtractor={(item) => item.product_id}
+        contentContainerStyle={styles.listContent}
+        showsVerticalScrollIndicator={false}
         ListEmptyComponent={
           <View style={styles.centered}>
-            <Text style={styles.emptyText}>No products found.</Text>
-            <Text style={styles.emptyHint}>Add products in the Products tab.</Text>
+            <Text style={[theme.typography.bodyLarge, { color: theme.colors.onSurfaceVariant }]}>
+              No products found.
+            </Text>
           </View>
         }
-        renderItem={({ item }) => {
-          const isLow = item.quantity <= LOW_STOCK_THRESHOLD;
-          const pending = isTemp(item.product_id);
-          return (
-            <TouchableOpacity
-              style={[styles.productCard, pending && styles.pendingCard]}
-              onPress={() => openAdjustForProduct(item)}
-            >
-              <View style={styles.productInfo}>
-                <Text style={styles.productName}>{item.name}</Text>
-                {pending ? (
-                  <Text style={styles.pendingText}>⏳ Pending sync</Text>
-                ) : item.category ? (
-                  <Text style={styles.productCategory}>{item.category}</Text>
-                ) : null}
-              </View>
-              <View style={[styles.stockBadge, isLow && styles.stockBadgeLow]}>
-                <Text style={[styles.stockCount, isLow && styles.stockCountLow]}>
-                  {item.quantity}
-                </Text>
-                <Text style={[styles.stockLabel, isLow && styles.stockCountLow]}>in stock</Text>
-              </View>
-            </TouchableOpacity>
-          );
-        }}
-        contentContainerStyle={{ paddingBottom: 20 }}
+        renderItem={({ item }) => (
+          <ProductItem 
+            item={item} 
+            onAdjust={() => openAdjustModal(item)}
+            onEdit={() => openEditModal(item)}
+          />
+        )}
       />
 
+      {/* Floating Action Button */}
+      <TouchableOpacity 
+        style={[styles.fab, { backgroundColor: theme.colors.secondaryContainer }]}
+        activeOpacity={0.8}
+        onPress={openAddModal}
+      >
+        <MaterialIcons name="add" size={28} color={theme.colors.onSecondaryContainer} />
+      </TouchableOpacity>
+
+      {/* Unified Modal */}
       <Modal visible={modalVisible} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
-          <View style={styles.modalContainer}>
-            <Text style={styles.modalTitle}>Adjust Stock</Text>
-            {selectedProduct && (
-              <Text style={styles.modalSubtitle}>
-                {selectedProduct.name} — Current: {selectedProduct.quantity}
+          <View style={[styles.modalContainer, { backgroundColor: theme.colors.surface }]}>
+            <View style={styles.modalHeader}>
+              <Text style={[theme.typography.h3, { color: theme.colors.onSurface }]}>
+                {modalMode === 'adjust' ? 'Adjust Stock' : modalMode === 'edit' ? 'Edit Product' : 'Add Product'}
               </Text>
-            )}
-
-            <Text style={styles.label}>Type</Text>
-            <View style={styles.typeRow}>
-              {ADJUST_OPTIONS.map((opt) => (
-                <TouchableOpacity
-                  key={opt.key}
-                  style={[styles.typeButton, changeType === opt.key && styles.typeButtonActive]}
-                  onPress={() => setChangeType(opt.key)}
-                >
-                  <Text
-                    style={[
-                      styles.typeButtonText,
-                      changeType === opt.key && styles.typeButtonTextActive,
-                    ]}
-                  >
-                    {opt.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+              <TouchableOpacity onPress={() => setModalVisible(false)}>
+                <MaterialIcons name="close" size={24} color={theme.colors.onSurfaceVariant} />
+              </TouchableOpacity>
             </View>
 
-            <Text style={styles.label}>Quantity</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="e.g. 10"
-              value={quantityInput}
-              onChangeText={setQuantityInput}
-              keyboardType="number-pad"
-              autoFocus
-            />
+            <ScrollView showsVerticalScrollIndicator={false}>
+              {modalMode === 'adjust' ? (
+                <View style={styles.modalBody}>
+                  <Text style={[theme.typography.bodyMedium, { color: theme.colors.onSurfaceVariant, marginBottom: 16 }]}>
+                    {selectedProduct?.name} — Current: {selectedProduct?.quantity}
+                  </Text>
+                  
+                  <Text style={[theme.typography.button, { color: theme.colors.onSurface, marginBottom: 8 }]}>Change Type</Text>
+                  <View style={styles.typeRow}>
+                    {(['restock', 'adjustment', 'loss'] as InventoryChangeType[]).map((type) => (
+                      <TouchableOpacity
+                        key={type}
+                        style={[
+                          styles.typeButton,
+                          { borderColor: theme.colors.outlineVariant },
+                          changeType === type && { backgroundColor: theme.colors.primaryContainer, borderColor: theme.colors.primary }
+                        ]}
+                        onPress={() => setChangeType(type)}
+                      >
+                        <Text style={[
+                          theme.typography.labelMedium,
+                          { color: theme.colors.onSurfaceVariant },
+                          changeType === type && { color: theme.colors.primary, fontWeight: '700' }
+                        ]}>
+                          {type.charAt(0).toUpperCase() + type.slice(1)}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
 
-            <View style={styles.modalButtons}>
-              <TouchableOpacity
-                style={[styles.button, styles.cancelButton]}
-                onPress={() => setModalVisible(false)}
+                  <Text style={[theme.typography.button, { color: theme.colors.onSurface, marginBottom: 8, marginTop: 16 }]}>Quantity</Text>
+                  <TextInput
+                    style={[styles.modalInput, theme.typography.bodyLarge, { borderColor: theme.colors.outlineVariant }]}
+                    placeholder="e.g. 10"
+                    value={quantityInput}
+                    onChangeText={setQuantityInput}
+                    keyboardType="number-pad"
+                    autoFocus
+                  />
+                </View>
+              ) : (
+                <View style={styles.modalBody}>
+                  <Text style={[theme.typography.button, { color: theme.colors.onSurface, marginBottom: 8 }]}>Product Name</Text>
+                  <TextInput
+                    style={[styles.modalInput, theme.typography.bodyLarge, { borderColor: theme.colors.outlineVariant }]}
+                    value={editForm.name}
+                    onChangeText={(v) => setEditForm(f => ({ ...f, name: v }))}
+                  />
+
+                  <Text style={[theme.typography.button, { color: theme.colors.onSurface, marginBottom: 8, marginTop: 16 }]}>Selling Price (₱)</Text>
+                  <TextInput
+                    style={[styles.modalInput, theme.typography.bodyLarge, { borderColor: theme.colors.outlineVariant }]}
+                    value={editForm.selling_price}
+                    onChangeText={(v) => setEditForm(f => ({ ...f, selling_price: v }))}
+                    keyboardType="decimal-pad"
+                  />
+
+                  <Text style={[theme.typography.button, { color: theme.colors.onSurface, marginBottom: 8, marginTop: 16 }]}>Cost Price (₱)</Text>
+                  <TextInput
+                    style={[styles.modalInput, theme.typography.bodyLarge, { borderColor: theme.colors.outlineVariant }]}
+                    value={editForm.original_price}
+                    onChangeText={(v) => setEditForm(f => ({ ...f, original_price: v }))}
+                    keyboardType="decimal-pad"
+                  />
+
+                  <Text style={[theme.typography.button, { color: theme.colors.onSurface, marginBottom: 8, marginTop: 16 }]}>Category</Text>
+                  <TextInput
+                    style={[styles.modalInput, theme.typography.bodyLarge, { borderColor: theme.colors.outlineVariant }]}
+                    value={editForm.category}
+                    onChangeText={(v) => setEditForm(f => ({ ...f, category: v }))}
+                  />
+
+                  {modalMode === 'add' && (
+                    <>
+                      <Text style={[theme.typography.button, { color: theme.colors.onSurface, marginBottom: 8, marginTop: 16 }]}>Initial Quantity</Text>
+                      <TextInput
+                        style={[styles.modalInput, theme.typography.bodyLarge, { borderColor: theme.colors.outlineVariant }]}
+                        value={editForm.quantity}
+                        onChangeText={(v) => setEditForm(f => ({ ...f, quantity: v }))}
+                        keyboardType="number-pad"
+                      />
+                    </>
+                  )}
+                </View>
+              )}
+            </ScrollView>
+
+            <View style={styles.modalFooter}>
+              <TouchableOpacity 
+                style={[styles.saveButton, { backgroundColor: theme.colors.primary }]}
+                onPress={handleSave}
+                disabled={saving}
               >
-                <Text style={styles.cancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.button} onPress={handleAdjust} disabled={saving}>
-                <Text style={styles.buttonText}>{saving ? 'Saving...' : 'Confirm'}</Text>
+                {saving ? (
+                  <ActivityIndicator color={theme.colors.onPrimary} />
+                ) : (
+                  <Text style={[theme.typography.button, { color: theme.colors.onPrimary }]}>
+                    {modalMode === 'add' ? 'Add Product' : 'Confirm Changes'}
+                  </Text>
+                )}
               </TouchableOpacity>
             </View>
           </View>
@@ -257,104 +383,279 @@ export default function InventoryScreen() {
   );
 }
 
+function ProductItem({ item, onAdjust, onEdit }: { item: Product, onAdjust: () => void, onEdit: () => void }) {
+  const isLow = item.quantity <= LOW_STOCK_THRESHOLD;
+  const pending = isTemp(item.product_id);
+
+  return (
+    <View style={[
+      styles.productCard, 
+      { backgroundColor: theme.colors.surface, borderColor: isLow ? theme.colors.errorContainer : 'transparent' },
+      isLow && styles.lowStockCard
+    ]}>
+      {isLow && (
+        <View style={[styles.lowStockBadge, { backgroundColor: theme.colors.error }]}>
+          <Text style={[theme.typography.labelMedium, { color: theme.colors.onError, fontWeight: '700' }]}>
+            Kulang sa Stocks
+          </Text>
+        </View>
+      )}
+
+      <View style={styles.cardContent}>
+        <View style={[styles.imageContainer, { backgroundColor: theme.colors.surfaceVariant }]}>
+          {/* Placeholder for Product Image */}
+          <MaterialIcons name="inventory" size={32} color={theme.colors.outline} />
+        </View>
+
+        <View style={styles.productDetails}>
+          <View style={styles.nameRow}>
+            <Text style={[theme.typography.h3, { color: theme.colors.onSurface, flex: 1 }]} numberOfLines={1}>
+              {item.name}
+            </Text>
+            <TouchableOpacity onPress={onEdit}>
+              <MaterialIcons name="more-vert" size={20} color={theme.colors.outlineVariant} />
+            </TouchableOpacity>
+          </View>
+          
+          <Text style={[theme.typography.bodyMedium, { color: theme.colors.onSurfaceVariant }]}>
+            {item.category || 'No Category'}
+          </Text>
+
+          <View style={styles.priceStockRow}>
+            <View>
+              <Text style={[theme.typography.labelMedium, { color: theme.colors.primary, fontWeight: '700' }]}>
+                ₱ {item.selling_price.toFixed(2)}
+              </Text>
+              <View style={styles.stockInfo}>
+                <MaterialIcons 
+                  name={isLow ? "warning" : "inventory-2"} 
+                  size={14} 
+                  color={isLow ? theme.colors.error : theme.colors.tertiary} 
+                />
+                <Text style={[
+                  theme.typography.bodyMedium, 
+                  { color: isLow ? theme.colors.error : theme.colors.tertiary, marginLeft: 4, fontWeight: isLow ? '700' : '500' }
+                ]}>
+                  {item.quantity} items left
+                </Text>
+              </View>
+            </View>
+
+            {isLow && (
+              <TouchableOpacity 
+                style={[styles.orderButton, { backgroundColor: theme.colors.error }]}
+                onPress={onAdjust}
+              >
+                <MaterialIcons name="shopping-cart" size={16} color={theme.colors.onError} />
+                <Text style={[theme.typography.button, { color: theme.colors.onError, marginLeft: 4 }]}>
+                  Mag-order
+                </Text>
+              </TouchableOpacity>
+            )}
+            
+            {!isLow && (
+              <TouchableOpacity 
+                style={[styles.adjustButton, { borderColor: theme.colors.outlineVariant }]}
+                onPress={onAdjust}
+              >
+                <Text style={[theme.typography.labelMedium, { color: theme.colors.onSurfaceVariant }]}>Adjust</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      </View>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f5f5f5' },
-  centered: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: 24 },
-  alertBanner: {
-    backgroundColor: '#fff3cd',
-    borderLeftWidth: 4,
-    borderLeftColor: '#f0a500',
-    padding: 12,
-    marginHorizontal: 12,
-    marginTop: 12,
-    borderRadius: 8,
+  container: {
+    flex: 1,
   },
-  alertTitle: { fontWeight: '700', color: '#856404', fontSize: 14 },
-  alertItems: { color: '#856404', fontSize: 12, marginTop: 4 },
-  productCard: {
+  centered: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  headerContent: {
+    padding: theme.spacing.containerPadding,
+    paddingBottom: 8,
+  },
+  titleSection: {
+    marginBottom: 24,
+  },
+  searchRow: {
     flexDirection: 'row',
-    backgroundColor: '#fff',
-    marginHorizontal: 12,
-    marginTop: 10,
-    padding: 14,
-    borderRadius: 10,
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    elevation: 1,
+    gap: 8,
+    marginBottom: 8,
   },
-  productInfo: { flex: 1 },
-  productName: { fontSize: 15, fontWeight: '600', color: '#222' },
-  productCategory: { fontSize: 12, color: '#999', marginTop: 2 },
-  stockBadge: {
+  searchBar: {
+    flex: 1,
+    height: 48,
+    flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#e8f5e9',
     paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    minWidth: 60,
-  },
-  stockBadgeLow: { backgroundColor: '#fdecea' },
-  stockCount: { fontSize: 18, fontWeight: '700', color: '#2e7d32' },
-  stockCountLow: { color: '#c62828' },
-  stockLabel: { fontSize: 10, color: '#2e7d32' },
-  pendingCard: { opacity: 0.6, borderStyle: 'dashed', borderWidth: 1, borderColor: '#aaa' },
-  pendingText: { fontSize: 11, color: '#999', marginTop: 2, fontStyle: 'italic' },
-  offlineBanner: {
-    backgroundColor: '#fff3cd',
-    padding: 8,
-    alignItems: 'center',
-    borderBottomWidth: 1,
-    borderBottomColor: '#ffd952',
-  },
-  offlineBannerText: { color: '#856404', fontSize: 12, fontWeight: '600' },
-  emptyText: { fontSize: 16, color: '#888' },
-  emptyHint: { fontSize: 13, color: '#aaa', marginTop: 6, textAlign: 'center' },
-  errorText: { color: '#e74c3c', textAlign: 'center' },
-  label: { fontSize: 13, fontWeight: '600', color: '#555', marginBottom: 8, marginTop: 4 },
-  typeRow: { flexDirection: 'row', gap: 8, marginBottom: 16 },
-  typeButton: {
-    flex: 1,
-    padding: 10,
-    borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#ddd',
-    alignItems: 'center',
-    backgroundColor: '#fafafa',
-  },
-  typeButtonActive: { borderColor: '#007AFF', backgroundColor: '#e8f0fe' },
-  typeButtonText: { fontSize: 12, color: '#555', fontWeight: '600' },
-  typeButtonTextActive: { color: '#007AFF' },
-  input: {
+    borderRadius: theme.borderRadius.lg,
     backgroundColor: '#fff',
-    borderWidth: 1,
-    borderColor: '#ddd',
-    borderRadius: 8,
-    padding: 12,
-    marginBottom: 16,
-    fontSize: 16,
   },
-  button: {
-    backgroundColor: '#007AFF',
-    padding: 14,
+  searchInput: {
+    flex: 1,
+    marginLeft: 8,
+  },
+  filterButton: {
+    width: 48,
+    height: 48,
+    borderWidth: 1,
+    borderRadius: theme.borderRadius.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff',
+  },
+  offlineBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    marginHorizontal: theme.spacing.containerPadding,
+    borderRadius: theme.borderRadius.lg,
+    marginBottom: 16,
+  },
+  listContent: {
+    paddingHorizontal: theme.spacing.containerPadding,
+    paddingBottom: 100,
+  },
+  productCard: {
+    borderRadius: 16,
+    padding: theme.spacing.containerPadding,
+    marginBottom: 16,
+    shadowColor: '#00535B',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  lowStockCard: {
+    borderWidth: 1,
+  },
+  lowStockBadge: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderBottomLeftRadius: 8,
+    zIndex: 1,
+  },
+  cardContent: {
+    flexDirection: 'row',
+    gap: 16,
+  },
+  imageContainer: {
+    width: 80,
+    height: 80,
     borderRadius: 8,
     alignItems: 'center',
+    justifyContent: 'center',
+  },
+  productDetails: {
     flex: 1,
   },
-  buttonText: { color: '#fff', fontWeight: '700', fontSize: 15 },
-  cancelButton: { backgroundColor: '#f0f0f0', marginRight: 8 },
-  cancelText: { color: '#333', fontWeight: '700', fontSize: 15 },
+  nameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  priceStockRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+    marginTop: 8,
+  },
+  stockInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 2,
+  },
+  orderButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    height: 36,
+    borderRadius: 8,
+  },
+  adjustButton: {
+    paddingHorizontal: 12,
+    height: 32,
+    borderRadius: 8,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.45)',
+    backgroundColor: 'rgba(0,0,0,0.4)',
     justifyContent: 'flex-end',
   },
   modalContainer: {
-    backgroundColor: '#fff',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 20,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 24,
+    maxHeight: '90%',
   },
-  modalTitle: { fontSize: 18, fontWeight: '700', color: '#333', marginBottom: 4 },
-  modalSubtitle: { fontSize: 13, color: '#888', marginBottom: 16 },
-  modalButtons: { flexDirection: 'row' },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  modalBody: {
+    marginBottom: 24,
+  },
+  typeRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  typeButton: {
+    flex: 1,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  modalInput: {
+    height: 56,
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 16,
+    backgroundColor: '#fff',
+  },
+  modalFooter: {
+    marginTop: 16,
+    paddingBottom: Platform.OS === 'ios' ? 20 : 0,
+  },
+  saveButton: {
+    height: 56,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fab: {
+    position: 'absolute',
+    bottom: 24,
+    right: 24,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 6,
+  },
 });
