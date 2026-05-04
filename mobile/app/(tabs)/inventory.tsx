@@ -1,4 +1,5 @@
 import React, { useState, useCallback } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   View,
   Text,
@@ -29,31 +30,28 @@ const ADJUST_OPTIONS: AdjustOption[] = [
 
 export default function InventoryScreen() {
   const { store, loading: storeLoading, error: storeError } = useStore();
-  const [products, setProducts] = useState<Product[]>([]);
-  const [loadingProducts, setLoadingProducts] = useState(false);
+  const queryClient = useQueryClient();
+  const {
+    data: products = [],
+    isLoading: loadingProducts,
+    isError: productsHasError,
+    fetchStatus,
+    refetch,
+  } = useQuery({
+    queryKey: ['products', store?.store_id],
+    queryFn: () => ProductService.getByStoreId(store!.store_id),
+    enabled: !!store,
+  });
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [changeType, setChangeType] = useState<InventoryChangeType>('restock');
   const [quantityInput, setQuantityInput] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const fetchProducts = useCallback(async () => {
-    if (!store) return;
-    setLoadingProducts(true);
-    try {
-      const data = await ProductService.getByStoreId(store.store_id);
-      setProducts(data);
-    } catch (e: any) {
-      Alert.alert('Error', e.message);
-    } finally {
-      setLoadingProducts(false);
-    }
-  }, [store]);
-
   useFocusEffect(
     useCallback(() => {
-      fetchProducts();
-    }, [fetchProducts])
+      if (store) refetch();
+    }, [store, refetch])
   );
 
   const openAdjustModal = (product: Product) => {
@@ -76,13 +74,7 @@ export default function InventoryScreen() {
     setSaving(true);
     try {
       await InventoryService.adjustStock(selectedProduct.product_id, delta, changeType);
-      setProducts((prev) =>
-        prev.map((p) =>
-          p.product_id === selectedProduct.product_id
-            ? { ...p, quantity: Math.max(0, p.quantity + delta) }
-            : p
-        )
-      );
+      queryClient.invalidateQueries({ queryKey: ['products', store?.store_id] });
       setModalVisible(false);
     } catch (e: any) {
       Alert.alert('Error', e.message);
@@ -121,6 +113,11 @@ export default function InventoryScreen() {
 
   return (
     <View style={styles.container}>
+      {(productsHasError || fetchStatus === 'paused') && products.length > 0 && (
+        <View style={styles.offlineBanner}>
+          <Text style={styles.offlineBannerText}>Offline — showing cached data</Text>
+        </View>
+      )}
       {lowStock.length > 0 && (
         <View style={styles.alertBanner}>
           <Text style={styles.alertTitle}>
@@ -261,6 +258,14 @@ const styles = StyleSheet.create({
   stockCount: { fontSize: 18, fontWeight: '700', color: '#2e7d32' },
   stockCountLow: { color: '#c62828' },
   stockLabel: { fontSize: 10, color: '#2e7d32' },
+  offlineBanner: {
+    backgroundColor: '#fff3cd',
+    padding: 8,
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#ffd952',
+  },
+  offlineBannerText: { color: '#856404', fontSize: 12, fontWeight: '600' },
   emptyText: { fontSize: 16, color: '#888' },
   emptyHint: { fontSize: 13, color: '#aaa', marginTop: 6, textAlign: 'center' },
   errorText: { color: '#e74c3c', textAlign: 'center' },

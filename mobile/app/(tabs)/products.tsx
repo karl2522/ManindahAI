@@ -1,4 +1,5 @@
 import React, { useState, useCallback } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   View,
   Text,
@@ -34,8 +35,18 @@ const EMPTY_FORM: FormData = {
 
 export default function ProductsScreen() {
   const { store, userId, loading: storeLoading, error: storeError, setStore } = useStore();
-  const [products, setProducts] = useState<Product[]>([]);
-  const [loadingProducts, setLoadingProducts] = useState(false);
+  const queryClient = useQueryClient();
+  const {
+    data: products = [],
+    isLoading: loadingProducts,
+    isError: productsHasError,
+    fetchStatus,
+    refetch,
+  } = useQuery({
+    queryKey: ['products', store?.store_id],
+    queryFn: () => ProductService.getByStoreId(store!.store_id),
+    enabled: !!store,
+  });
   const [modalVisible, setModalVisible] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [form, setForm] = useState<FormData>(EMPTY_FORM);
@@ -43,23 +54,10 @@ export default function ProductsScreen() {
   const [storeName, setStoreName] = useState('');
   const [creatingStore, setCreatingStore] = useState(false);
 
-  const fetchProducts = useCallback(async () => {
-    if (!store) return;
-    setLoadingProducts(true);
-    try {
-      const data = await ProductService.getByStoreId(store.store_id);
-      setProducts(data);
-    } catch (e: any) {
-      Alert.alert('Error', e.message);
-    } finally {
-      setLoadingProducts(false);
-    }
-  }, [store]);
-
   useFocusEffect(
     useCallback(() => {
-      fetchProducts();
-    }, [fetchProducts])
+      if (store) refetch();
+    }, [store, refetch])
   );
 
   const handleCreateStore = async () => {
@@ -114,13 +112,11 @@ export default function ProductsScreen() {
 
       if (editingProduct) {
         const { store_id, ...updatePayload } = payload;
-        const updated = await ProductService.update(editingProduct.product_id, updatePayload);
-        setProducts((prev) =>
-          prev.map((p) => (p.product_id === updated.product_id ? updated : p))
-        );
+        await ProductService.update(editingProduct.product_id, updatePayload);
+        queryClient.invalidateQueries({ queryKey: ['products', store.store_id] });
       } else {
-        const created = await ProductService.create(payload);
-        setProducts((prev) => [...prev, created]);
+        await ProductService.create(payload);
+        queryClient.invalidateQueries({ queryKey: ['products', store.store_id] });
       }
       setModalVisible(false);
     } catch (e: any) {
@@ -142,7 +138,7 @@ export default function ProductsScreen() {
           onPress: async () => {
             try {
               await ProductService.delete(product.product_id);
-              setProducts((prev) => prev.filter((p) => p.product_id !== product.product_id));
+              queryClient.invalidateQueries({ queryKey: ['products', store.store_id] });
             } catch (e: any) {
               Alert.alert('Error', e.message);
             }
@@ -200,6 +196,12 @@ export default function ProductsScreen() {
           <Text style={styles.addButtonText}>+ Add</Text>
         </TouchableOpacity>
       </View>
+
+      {(productsHasError || fetchStatus === 'paused') && products.length > 0 && (
+        <View style={styles.offlineBanner}>
+          <Text style={styles.offlineBannerText}>Offline — showing cached data</Text>
+        </View>
+      )}
 
       {loadingProducts ? (
         <ActivityIndicator style={{ marginTop: 24 }} />
@@ -338,6 +340,14 @@ const styles = StyleSheet.create({
   priceText: { fontSize: 14, fontWeight: '600', color: '#333' },
   stockText: { fontSize: 12, color: '#666', marginTop: 2 },
   lowStock: { color: '#e74c3c', fontWeight: '700' },
+  offlineBanner: {
+    backgroundColor: '#fff3cd',
+    padding: 8,
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: '#ffd952',
+  },
+  offlineBannerText: { color: '#856404', fontSize: 12, fontWeight: '600' },
   emptyText: { fontSize: 16, color: '#888' },
   emptyHint: { fontSize: 13, color: '#aaa', marginTop: 6 },
   errorText: { color: '#e74c3c', textAlign: 'center' },

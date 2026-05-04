@@ -86,8 +86,8 @@ export const AuthService = {
    */
   async logout(): Promise<void> {
     await signOut(auth);
-    // Sign out from Supabase as well
-    await supabase.auth.signOut();
+    // Best-effort Supabase sign-out — don't block or throw if offline
+    supabase.auth.signOut().catch(() => {});
   },
 
   /**
