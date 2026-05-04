@@ -21,7 +21,7 @@ The project aims to empower sari-sari store owners with digital tools for financ
 - **Inventory Management**: Track stock levels and receive low-stock alerts.
 - **Financial Tracking**: Log sales, expenses (rent, utilities, etc.), and view profit/loss summaries.
 - **AI Suggestions**: Receive actionable insights based on sales patterns (requires sync).
-- **OCR Integration**: Scan handwritten records to automate sales entry.
+- **OCR Integration**: Scan supplier receipts to auto-create product lists, and scan handwritten daily sales records to calculate totals.
 - **Supplier Comparison**: Compare prices from different suppliers to maximize profit.
 - **Store Creation**: Create and manage store profiles, can also add location of store.
 

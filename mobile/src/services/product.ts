@@ -117,4 +117,52 @@ export const ProductService = {
 
     if (error) throw new Error(`Failed to delete product: ${error.message}`);
   },
+
+  /**
+   * Search products by name (case-insensitive partial match).
+   */
+  async searchByName(store_id: string, query: string): Promise<Product[]> {
+    const { data, error } = await supabase
+      .from('products')
+      .select('*')
+      .eq('store_id', store_id)
+      .ilike('name', `%${query}%`)
+      .order('name');
+
+    if (error) throw new Error(`Failed to search products: ${error.message}`);
+
+    return data as Product[];
+  },
+
+  /**
+   * Get products filtered by category.
+   */
+  async getByCategory(store_id: string, category: string): Promise<Product[]> {
+    const { data, error } = await supabase
+      .from('products')
+      .select('*')
+      .eq('store_id', store_id)
+      .eq('category', category)
+      .order('name');
+
+    if (error) throw new Error(`Failed to fetch products by category: ${error.message}`);
+
+    return data as Product[];
+  },
+
+  /**
+   * Get distinct categories for a store (useful for filter dropdowns).
+   */
+  async getCategories(store_id: string): Promise<string[]> {
+    const { data, error } = await supabase
+      .from('products')
+      .select('category')
+      .eq('store_id', store_id)
+      .not('category', 'is', null);
+
+    if (error) throw new Error(`Failed to fetch categories: ${error.message}`);
+
+    const unique = [...new Set((data ?? []).map((r: any) => r.category as string))];
+    return unique.sort();
+  },
 };
