@@ -23,6 +23,7 @@ The project aims to empower sari-sari store owners with digital tools for financ
 - **AI Suggestions**: Receive actionable insights based on sales patterns (requires sync).
 - **OCR Integration**: Scan handwritten records to automate sales entry.
 - **Supplier Comparison**: Compare prices from different suppliers to maximize profit.
+- **Store Creation**: Create and manage store profiles, can also add location of store.
 
 ### Customer Side
 

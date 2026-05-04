@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -11,6 +11,7 @@ import {
   ActivityIndicator,
   ScrollView,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { useStore } from '../../src/hooks/useStore';
 import { ProductService, Product, CreateProductInput } from '../../src/services/product';
 import { StoreService } from '../../src/services/store';
@@ -55,9 +56,11 @@ export default function ProductsScreen() {
     }
   }, [store]);
 
-  useEffect(() => {
-    fetchProducts();
-  }, [fetchProducts]);
+  useFocusEffect(
+    useCallback(() => {
+      fetchProducts();
+    }, [fetchProducts])
+  );
 
   const handleCreateStore = async () => {
     if (!userId || !storeName.trim()) {

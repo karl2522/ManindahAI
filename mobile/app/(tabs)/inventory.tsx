@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   Alert,
   ActivityIndicator,
 } from 'react-native';
+import { useFocusEffect } from '@react-navigation/native';
 import { useStore } from '../../src/hooks/useStore';
 import { ProductService, Product } from '../../src/services/product';
 import { InventoryService, InventoryChangeType, LOW_STOCK_THRESHOLD } from '../../src/services/inventory';
@@ -49,9 +50,11 @@ export default function InventoryScreen() {
     }
   }, [store]);
 
-  useEffect(() => {
-    fetchProducts();
-  }, [fetchProducts]);
+  useFocusEffect(
+    useCallback(() => {
+      fetchProducts();
+    }, [fetchProducts])
+  );
 
   const openAdjustModal = (product: Product) => {
     setSelectedProduct(product);
