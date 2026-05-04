@@ -1,13 +1,47 @@
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, Alert, Platform } from 'react-native';
-import { useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, Alert } from 'react-native';
+import { useState, useEffect } from 'react';
+import * as Google from 'expo-auth-session/providers/google';
+import * as WebBrowser from 'expo-web-browser';
 import { AuthService } from '../../src/services/auth';
 import { useRouter } from 'expo-router';
+
+WebBrowser.maybeCompleteAuthSession();
 
 export default function LoginScreen() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+
+  const [, response, promptAsync] = Google.useAuthRequest({
+    webClientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
+    androidClientId: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID,
+  });
+
+  useEffect(() => {
+    if (response?.type === 'success') {
+      const idToken = response.authentication?.idToken;
+      if (idToken) {
+        handleGoogleCredential(idToken);
+      } else {
+        Alert.alert('Google Login Error', 'No ID token received.');
+      }
+    } else if (response?.type === 'error') {
+      Alert.alert('Google Login Error', response.error?.message ?? 'Unknown error');
+    }
+  }, [response]);
+
+  const handleGoogleCredential = async (idToken: string) => {
+    setLoading(true);
+    try {
+      await AuthService.loginWithGoogleCredential(idToken);
+      router.replace('/(tabs)');
+    } catch (error: any) {
+      Alert.alert('Google Login Error', error.message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleEmailLogin = async () => {
     if (!email || !password) {
@@ -28,24 +62,8 @@ export default function LoginScreen() {
     }
   };
 
-  const handleGoogleLogin = async () => {
-    if (Platform.OS !== 'web') {
-      Alert.alert('Not Supported', 'Google Sign-In is only set up for web testing right now.');
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const { profile } = await AuthService.loginWithGoogle();
-      Alert.alert('Success', `Logged in with Google successfully as ${profile.name || profile.email}!`);
-      // Navigate to tabs
-      router.replace('/(tabs)');
-    } catch (error: any) {
-      console.error(error);
-      Alert.alert('Google Login Error', error.message);
-    } finally {
-      setLoading(false);
-    }
+  const handleGoogleLogin = () => {
+    promptAsync();
   };
 
   return (

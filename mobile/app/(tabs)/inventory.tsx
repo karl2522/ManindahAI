@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient, onlineManager } from '@tanstack/react-query';
 import {
   View,
   Text,
@@ -11,10 +11,14 @@ import {
   Alert,
   ActivityIndicator,
 } from 'react-native';
+import { Platform } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { useStore } from '../../src/hooks/useStore';
 import { ProductService, Product } from '../../src/services/product';
-import { InventoryService, InventoryChangeType, LOW_STOCK_THRESHOLD } from '../../src/services/inventory';
+import { InventoryService, LOW_STOCK_THRESHOLD, InventoryChangeType } from '../../src/services/inventory';
+import { addToOutbox } from '../../src/lib/outbox';
+
+const isTemp = (id: string) => id.startsWith('temp_');
 
 type AdjustOption = {
   key: InventoryChangeType;
@@ -73,8 +77,25 @@ export default function InventoryScreen() {
 
     setSaving(true);
     try {
-      await InventoryService.adjustStock(selectedProduct.product_id, delta, changeType);
-      queryClient.invalidateQueries({ queryKey: ['products', store?.store_id] });
+      if (onlineManager.isOnline()) {
+        await InventoryService.adjustStock(selectedProduct.product_id, delta, changeType);
+        queryClient.invalidateQueries({ queryKey: ['products', store?.store_id] });
+      } else {
+        queryClient.setQueryData<Product[]>(['products', store?.store_id], (old = []) =>
+          old.map((p) =>
+            p.product_id === selectedProduct.product_id
+              ? { ...p, quantity: Math.max(0, p.quantity + delta) }
+              : p
+          )
+        );
+        await addToOutbox({
+          op: 'inventory_adjust',
+          store_id: store!.store_id,
+          product_id: selectedProduct.product_id,
+          delta,
+          change_type: changeType,
+        });
+      }
       setModalVisible(false);
     } catch (e: any) {
       Alert.alert('Error', e.message);
@@ -111,6 +132,18 @@ export default function InventoryScreen() {
     );
   }
 
+  const openAdjustForProduct = (product: Product) => {
+    if (isTemp(product.product_id)) {
+      if (Platform.OS === 'web') {
+        window.alert('This product is pending sync. Adjust stock after it syncs online.');
+      } else {
+        Alert.alert('Pending Sync', 'This product is pending sync. Adjust stock after it syncs online.');
+      }
+      return;
+    }
+    openAdjustModal(product);
+  };
+
   return (
     <View style={styles.container}>
       {(productsHasError || fetchStatus === 'paused') && products.length > 0 && (
@@ -140,11 +173,17 @@ export default function InventoryScreen() {
         }
         renderItem={({ item }) => {
           const isLow = item.quantity <= LOW_STOCK_THRESHOLD;
+          const pending = isTemp(item.product_id);
           return (
-            <TouchableOpacity style={styles.productCard} onPress={() => openAdjustModal(item)}>
+            <TouchableOpacity
+              style={[styles.productCard, pending && styles.pendingCard]}
+              onPress={() => openAdjustForProduct(item)}
+            >
               <View style={styles.productInfo}>
                 <Text style={styles.productName}>{item.name}</Text>
-                {item.category ? (
+                {pending ? (
+                  <Text style={styles.pendingText}>⏳ Pending sync</Text>
+                ) : item.category ? (
                   <Text style={styles.productCategory}>{item.category}</Text>
                 ) : null}
               </View>
@@ -258,6 +297,8 @@ const styles = StyleSheet.create({
   stockCount: { fontSize: 18, fontWeight: '700', color: '#2e7d32' },
   stockCountLow: { color: '#c62828' },
   stockLabel: { fontSize: 10, color: '#2e7d32' },
+  pendingCard: { opacity: 0.6, borderStyle: 'dashed', borderWidth: 1, borderColor: '#aaa' },
+  pendingText: { fontSize: 11, color: '#999', marginTop: 2, fontStyle: 'italic' },
   offlineBanner: {
     backgroundColor: '#fff3cd',
     padding: 8,

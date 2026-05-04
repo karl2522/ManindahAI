@@ -5,7 +5,8 @@ import {
   User,
   getIdToken,
   GoogleAuthProvider,
-  signInWithPopup
+  signInWithPopup,
+  signInWithCredential,
 } from 'firebase/auth';
 import { auth } from '../lib/firebase';
 import { supabase } from '../lib/supabase';
@@ -70,6 +71,24 @@ export const AuthService = {
     
     const provider = new GoogleAuthProvider();
     const userCredential = await signInWithPopup(auth, provider);
+    const user = userCredential.user;
+
+    const profile = await UserService.syncFromFirebase({
+      firebase_uid: user.uid,
+      email: user.email ?? '',
+      name: user.displayName,
+    });
+
+    return { user, profile };
+  },
+
+  /**
+   * Login with a Google ID token (for native platforms via expo-auth-session).
+   * Also syncs the Google user to the Supabase users table.
+   */
+  async loginWithGoogleCredential(idToken: string): Promise<{ user: User; profile: UserProfile }> {
+    const credential = GoogleAuthProvider.credential(idToken);
+    const userCredential = await signInWithCredential(auth, credential);
     const user = userCredential.user;
 
     const profile = await UserService.syncFromFirebase({

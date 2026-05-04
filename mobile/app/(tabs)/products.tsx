@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient, onlineManager } from '@tanstack/react-query';
 import {
   View,
   Text,
@@ -11,11 +11,15 @@ import {
   Alert,
   ActivityIndicator,
   ScrollView,
+  Platform,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { useStore } from '../../src/hooks/useStore';
 import { ProductService, Product, CreateProductInput } from '../../src/services/product';
 import { StoreService } from '../../src/services/store';
+import { addToOutbox } from '../../src/lib/outbox';
+
+const isTemp = (id: string) => id.startsWith('temp_');
 
 type FormData = {
   name: string;
@@ -110,13 +114,36 @@ export default function ProductsScreen() {
         category: form.category.trim() || undefined,
       };
 
-      if (editingProduct) {
-        const { store_id, ...updatePayload } = payload;
-        await ProductService.update(editingProduct.product_id, updatePayload);
+      if (onlineManager.isOnline()) {
+        if (editingProduct) {
+          const { store_id, ...updatePayload } = payload;
+          await ProductService.update(editingProduct.product_id, updatePayload);
+        } else {
+          await ProductService.create(payload);
+        }
         queryClient.invalidateQueries({ queryKey: ['products', store.store_id] });
       } else {
-        await ProductService.create(payload);
-        queryClient.invalidateQueries({ queryKey: ['products', store.store_id] });
+        if (editingProduct) {
+          const { store_id, ...updatePayload } = payload;
+          queryClient.setQueryData<Product[]>(['products', store.store_id], (old = []) =>
+            old.map((p) => (p.product_id === editingProduct.product_id ? { ...p, ...updatePayload } : p))
+          );
+          await addToOutbox({ op: 'product_update', store_id: store.store_id, product_id: editingProduct.product_id, payload: updatePayload });
+        } else {
+          const tempProduct: Product = {
+            product_id: `temp_${Date.now()}`,
+            store_id: payload.store_id,
+            name: payload.name,
+            original_price: payload.original_price,
+            selling_price: payload.selling_price,
+            quantity: payload.quantity,
+            category: payload.category ?? null,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          };
+          queryClient.setQueryData<Product[]>(['products', store.store_id], (old = []) => [...old, tempProduct]);
+          await addToOutbox({ op: 'product_create', store_id: store.store_id, payload });
+        }
       }
       setModalVisible(false);
     } catch (e: any) {
@@ -127,25 +154,36 @@ export default function ProductsScreen() {
   };
 
   const handleDelete = (product: Product) => {
-    Alert.alert(
-      'Delete Product',
-      `Delete "${product.name}"? This cannot be undone.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await ProductService.delete(product.product_id);
-              queryClient.invalidateQueries({ queryKey: ['products', store.store_id] });
-            } catch (e: any) {
-              Alert.alert('Error', e.message);
-            }
-          },
-        },
-      ]
-    );
+    if (isTemp(product.product_id)) return;
+
+    const doDelete = async () => {
+      try {
+        if (onlineManager.isOnline()) {
+          await ProductService.delete(product.product_id);
+          queryClient.invalidateQueries({ queryKey: ['products', store!.store_id] });
+        } else {
+          queryClient.setQueryData<Product[]>(['products', store!.store_id], (old = []) =>
+            old.filter((p) => p.product_id !== product.product_id)
+          );
+          await addToOutbox({ op: 'product_delete', store_id: store!.store_id, product_id: product.product_id });
+        }
+      } catch (e: any) {
+        Alert.alert('Error', e.message);
+      }
+    };
+
+    if (Platform.OS === 'web') {
+      if (window.confirm(`Delete "${product.name}"? This cannot be undone.`)) doDelete();
+    } else {
+      Alert.alert(
+        'Delete Product',
+        `Delete "${product.name}"? This cannot be undone.`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Delete', style: 'destructive', onPress: doDelete },
+        ]
+      );
+    }
   };
 
   if (storeLoading) {
@@ -216,13 +254,16 @@ export default function ProductsScreen() {
           keyExtractor={(item) => item.product_id}
           renderItem={({ item }) => (
             <TouchableOpacity
-              style={styles.productCard}
-              onPress={() => openEditModal(item)}
+              style={[styles.productCard, isTemp(item.product_id) && styles.pendingCard]}
+              onPress={() => !isTemp(item.product_id) && openEditModal(item)}
               onLongPress={() => handleDelete(item)}
+              disabled={isTemp(item.product_id)}
             >
               <View style={styles.productInfo}>
                 <Text style={styles.productName}>{item.name}</Text>
-                {item.category ? (
+                {isTemp(item.product_id) ? (
+                  <Text style={styles.pendingText}>⏳ Pending sync</Text>
+                ) : item.category ? (
                   <Text style={styles.productCategory}>{item.category}</Text>
                 ) : null}
               </View>
@@ -340,6 +381,8 @@ const styles = StyleSheet.create({
   priceText: { fontSize: 14, fontWeight: '600', color: '#333' },
   stockText: { fontSize: 12, color: '#666', marginTop: 2 },
   lowStock: { color: '#e74c3c', fontWeight: '700' },
+  pendingCard: { opacity: 0.6, borderStyle: 'dashed', borderWidth: 1, borderColor: '#aaa' },
+  pendingText: { fontSize: 11, color: '#999', marginTop: 2, fontStyle: 'italic' },
   offlineBanner: {
     backgroundColor: '#fff3cd',
     padding: 8,
