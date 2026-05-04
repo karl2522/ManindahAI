@@ -92,6 +92,12 @@ export default function LoginScreen() {
       >
         <Text style={styles.googleButtonText}>Sign In with Google</Text>
       </TouchableOpacity>
+
+      <TouchableOpacity style={styles.linkButton} onPress={() => router.push('/(auth)/register')}>
+        <Text style={styles.linkText}>
+          Don't have an account? <Text style={styles.linkBold}>Register</Text>
+        </Text>
+      </TouchableOpacity>
     </View>
   );
 }
@@ -164,5 +170,16 @@ const styles = StyleSheet.create({
   dividerText: {
     paddingHorizontal: 10,
     color: '#888',
+  },
+  linkButton: {
+    marginTop: 24,
+  },
+  linkText: {
+    color: '#666',
+    fontSize: 14,
+  },
+  linkBold: {
+    color: '#007AFF',
+    fontWeight: 'bold',
   },
 });

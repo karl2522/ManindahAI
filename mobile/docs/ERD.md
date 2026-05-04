@@ -34,7 +34,7 @@ entity "User" as User {
   \+user\_id : int \<\<PK\>\>  
   name : varchar  
   email : varchar  
-  password : varchar  
+  firebase_uid : varchar  
   role : enum  
   status : enum  
 }

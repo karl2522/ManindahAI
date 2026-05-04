@@ -41,6 +41,7 @@ The project aims to empower sari-sari store owners with digital tools for financ
 - **Framework**: [React Native Expo](https://expo.dev/)
 - **Language**: [TypeScript](https://www.typescriptlang.org/)
 - **Database**: [Supabase](https://supabase.com) (with Offline Sync)
+- **Authentication**: [Firebase](https://firebase.google.com/)
 - **Package Manager**: [npm](https://www.npmjs.com/)
 
 ---

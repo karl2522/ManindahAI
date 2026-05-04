@@ -9,7 +9,7 @@ import {
 } from 'firebase/auth';
 import { auth } from '../lib/firebase';
 import { supabase } from '../lib/supabase';
-import { UserService, UserProfile } from './user';
+import { UserService, UserProfile, UserRole } from './user';
 import { Platform } from 'react-native';
 
 /**
@@ -24,7 +24,11 @@ export const AuthService = {
    * Register a new user with email and password via Firebase.
    * Also syncs the new user to the Supabase users table.
    */
-  async registerWithEmail(email: string, password: string): Promise<{ user: User; profile: UserProfile }> {
+  async registerWithEmail(
+    email: string,
+    password: string,
+    roles?: UserRole[]
+  ): Promise<{ user: User; profile: UserProfile }> {
     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
     const user = userCredential.user;
 
@@ -32,6 +36,7 @@ export const AuthService = {
       firebase_uid: user.uid,
       email: user.email ?? email,
       name: user.displayName,
+      roles,
     });
 
     return { user, profile };

@@ -8,7 +8,7 @@ export interface UserProfile {
   firebase_uid: string;
   name: string | null;
   email: string;
-  role: UserRole;
+  roles: UserRole[];
   status: UserStatus;
   created_at: string;
   updated_at: string;
@@ -25,17 +25,17 @@ export const UserService = {
     firebase_uid: string;
     email: string;
     name: string | null;
+    roles?: UserRole[];
   }): Promise<UserProfile> {
-    const { firebase_uid, email, name } = params;
+    const { firebase_uid, email, name, roles } = params;
+
+    const upsertPayload: Record<string, unknown> = { firebase_uid, email, name };
+    if (roles) upsertPayload.roles = roles;
 
     const { data, error } = await supabase
       .from('users')
       .upsert(
-        {
-          firebase_uid,
-          email,
-          name,
-        },
+        upsertPayload,
         {
           onConflict: 'firebase_uid',
           ignoreDuplicates: false,
@@ -52,8 +52,28 @@ export const UserService = {
   },
 
   /**
-   * Get a user profile by their Firebase UID.
+   * Add a role to a user's roles array if they don't already have it.
    */
+  async addRole(user_id: string, role: UserRole): Promise<void> {
+    const { data, error: fetchError } = await supabase
+      .from('users')
+      .select('roles')
+      .eq('user_id', user_id)
+      .single();
+
+    if (fetchError) throw new Error(`Failed to fetch user roles: ${fetchError.message}`);
+
+    const current: UserRole[] = data.roles ?? ['customer'];
+    if (current.includes(role)) return;
+
+    const { error: updateError } = await supabase
+      .from('users')
+      .update({ roles: [...current, role] })
+      .eq('user_id', user_id);
+
+    if (updateError) throw new Error(`Failed to update roles: ${updateError.message}`);
+  },
+
   async getByFirebaseUid(firebase_uid: string): Promise<UserProfile | null> {
     const { data, error } = await supabase
       .from('users')
