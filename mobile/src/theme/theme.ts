@@ -97,5 +97,23 @@ export const theme = {
       fontWeight: '500' as const,
       letterSpacing: 0.6, // 0.05em * 12
     },
+    titleLarge: {
+      fontSize: 20,
+      lineHeight: 28,
+      fontWeight: '500' as const,
+      letterSpacing: 0,
+    },
+    titleMedium: {
+      fontSize: 16,
+      lineHeight: 24,
+      fontWeight: '500' as const,
+      letterSpacing: 0.15,
+    },
+    labelSmall: {
+      fontSize: 11,
+      lineHeight: 16,
+      fontWeight: '500' as const,
+      letterSpacing: 0.5,
+    },
   },
 };

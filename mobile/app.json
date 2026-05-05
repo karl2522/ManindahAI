@@ -41,7 +41,14 @@
       "expo-web-browser",
       "expo-font",
       "expo-asset",
-      "expo-image-picker"
+      "expo-image-picker",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow ManindahAI to access your camera to scan barcodes and receipts.",
+          "barcodeScannerEnabled": true
+        }
+      ]
     ]
   }
 }
