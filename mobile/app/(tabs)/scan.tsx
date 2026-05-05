@@ -1,47 +1,30 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Animated, Dimensions, Alert } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, Platform } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Stack, useRouter } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { theme } from '../../src/theme/theme';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
-const SCANNER_SIZE = SCREEN_WIDTH * 0.7;
 
 export default function ScanScreen() {
   const router = useRouter();
   const isFocused = useIsFocused();
+  const insets = useSafeAreaInsets();
   const [permission, requestPermission] = useCameraPermissions();
   const [flash, setFlash] = useState<boolean>(false);
   const [mode, setMode] = useState<'barcode' | 'receipt'>('barcode');
+  const [scanned, setScanned] = useState(false);
   
-  const pulseAnim = useRef(new Animated.Value(1)).current;
 
-  useEffect(() => {
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, {
-          toValue: 1.1,
-          duration: 1500,
-          useNativeDriver: true,
-        }),
-        Animated.timing(pulseAnim, {
-          toValue: 1,
-          duration: 1500,
-          useNativeDriver: true,
-        }),
-      ])
-    ).start();
-  }, [pulseAnim]);
 
   if (!permission) {
-    // Camera permissions are still loading.
     return <View style={styles.container} />;
   }
 
   if (!permission.granted) {
-    // Camera permissions are not granted yet.
     return (
       <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
         <Stack.Screen options={{ title: 'Scanner' }} />
@@ -64,6 +47,7 @@ export default function ScanScreen() {
     );
   }
 
+
   return (
     <View style={styles.container}>
       <Stack.Screen options={{ headerShown: false }} />
@@ -73,20 +57,30 @@ export default function ScanScreen() {
           style={StyleSheet.absoluteFill} 
           enableTorch={flash}
           facing="back"
+          barcodeScannerSettings={{
+            barcodeTypes: ['qr', 'ean13', 'ean8', 'code128', 'code39', 'upc_a', 'upc_e'],
+          }}
+          onBarcodeScanned={scanned ? undefined : ({ data }) => {
+            if (mode === 'barcode') {
+              setScanned(true);
+              Alert.alert('Scanned', `Barcode data: ${data}`, [
+                { text: 'OK', onPress: () => setScanned(false) }
+              ]);
+            }
+          }}
         >
-          {/* Transparent Overlay */}
           <View style={styles.overlay}>
             {/* Top Bar */}
-            <View style={styles.topBar}>
+            <View style={[styles.topBar, { paddingTop: Math.max(insets.top, 20) }]}>
               <TouchableOpacity 
-                style={[styles.iconButton, { backgroundColor: 'rgba(0,0,0,0.4)' }]}
+                style={styles.iconButton}
                 onPress={() => router.back()}
               >
                 <MaterialIcons name="close" size={28} color="white" />
               </TouchableOpacity>
               
               <TouchableOpacity 
-                style={[styles.iconButton, { backgroundColor: 'rgba(0,0,0,0.4)' }]}
+                style={styles.iconButton}
                 onPress={() => setFlash(!flash)}
               >
                 <MaterialIcons name={flash ? "flash-on" : "flash-off"} size={24} color="white" />
@@ -94,69 +88,72 @@ export default function ScanScreen() {
             </View>
 
             {/* Mode Switcher */}
-            <View style={styles.modeSwitcherContainer}>
-              <View style={[styles.modeSwitcher, { backgroundColor: 'rgba(0,0,0,0.5)' }]}>
+            <View style={[styles.modeSwitcherContainer, { marginTop: Math.max(insets.top, 20) + 60 }]}>
+              <View style={styles.modeSwitcher}>
                 <TouchableOpacity 
-                  style={[styles.modeButton, mode === 'barcode' && { backgroundColor: theme.colors.tertiaryContainer }]}
+                  style={[styles.modeButton, mode === 'barcode' ? styles.activeMode : {}]}
                   onPress={() => setMode('barcode')}
                 >
                   <MaterialIcons name="qr-code-scanner" size={18} color={mode === 'barcode' ? theme.colors.onTertiaryContainer : 'white'} />
-                  <Text style={[theme.typography.labelMedium, { color: mode === 'barcode' ? theme.colors.onTertiaryContainer : 'white', marginLeft: 8 }]}>
+                  <Text style={[styles.modeText, { color: mode === 'barcode' ? theme.colors.onTertiaryContainer : 'white' }]}>
                     Barcode
                   </Text>
                 </TouchableOpacity>
                 
                 <TouchableOpacity 
-                  style={[styles.modeButton, mode === 'receipt' && { backgroundColor: theme.colors.tertiaryContainer }]}
+                  style={[styles.modeButton, mode === 'receipt' ? styles.activeMode : {}]}
                   onPress={() => setMode('receipt')}
                 >
                   <MaterialIcons name="receipt-long" size={18} color={mode === 'receipt' ? theme.colors.onTertiaryContainer : 'white'} />
-                  <Text style={[theme.typography.labelMedium, { color: mode === 'receipt' ? theme.colors.onTertiaryContainer : 'white', marginLeft: 8 }]}>
-                    Receipt
+                  <Text style={[styles.modeText, { color: mode === 'receipt' ? theme.colors.onTertiaryContainer : 'white'}]}>
+                    Handwritten Receipt
                   </Text>
                 </TouchableOpacity>
               </View>
             </View>
 
-            {/* Scanning Frame */}
-            <View style={styles.frameContainer}>
-              <Animated.View style={[styles.frame, { transform: [{ scale: pulseAnim }] }]}>
-                {/* Corners */}
-                <View style={[styles.corner, styles.topLeft, { borderColor: theme.colors.tertiaryFixedDim }]} />
-                <View style={[styles.corner, styles.topRight, { borderColor: theme.colors.tertiaryFixedDim }]} />
-                <View style={[styles.corner, styles.bottomLeft, { borderColor: theme.colors.tertiaryFixedDim }]} />
-                <View style={[styles.corner, styles.bottomRight, { borderColor: theme.colors.tertiaryFixedDim }]} />
-                
-                {/* Scanning Line */}
-                <View style={[styles.scanLine, { backgroundColor: theme.colors.tertiaryFixedDim }]} />
-              </Animated.View>
-            </View>
 
             {/* Bottom Area */}
-            <View style={styles.bottomArea}>
+            <LinearGradient
+              colors={['transparent', 'rgba(0,0,0,0.4)', 'rgba(0,0,0,0.8)']}
+              style={[
+                styles.bottomArea, 
+                { paddingBottom: Math.max(insets.bottom, 20) + (mode === 'receipt' ? 40 : 20) }
+              ]}
+            >
               <View style={styles.guidanceLabel}>
-                <Text style={[theme.typography.bodyMedium, { color: 'white' }]}>
-                  Align {mode === 'barcode' ? 'item barcode' : 'receipt'} within the frame
+                <Text style={styles.guidanceText}>
+                  Align {mode === 'barcode' ? 'item barcode' : 'receipt'} in the center of the screen
                 </Text>
               </View>
 
-              <TouchableOpacity style={styles.captureButtonOuter} activeOpacity={0.8}>
-                <View style={styles.captureButtonInner} />
-              </TouchableOpacity>
+              {mode === 'receipt' && (
+                <>
+                  <TouchableOpacity 
+                    style={styles.captureButtonOuter} 
+                    activeOpacity={0.8}
+                    onPress={() => {
+                      Alert.alert('Capturing', 'Processing handwritten receipt with OCR...');
+                    }}
+                  >
+                    <View style={styles.captureButtonInner} />
+                  </TouchableOpacity>
 
-              <TouchableOpacity 
-                style={styles.manualEntryLink}
-                onPress={() => Alert.alert('Manual Entry', 'Switching to manual entry mode...')}
-              >
-                <Text style={[theme.typography.button, { color: 'white', textDecorationLine: 'underline' }]}>
-                  Can't Scan? Enter Manually
-                </Text>
-              </TouchableOpacity>
-            </View>
+                  <TouchableOpacity 
+                    style={styles.manualEntryLink}
+                    onPress={() => Alert.alert('Manual Entry', 'Switching to manual entry mode...')}
+                  >
+                    <Text style={styles.manualEntryText}>
+                      Can't Scan? Enter Manually
+                    </Text>
+                  </TouchableOpacity>
+                </>
+              )}
+            </LinearGradient>
           </View>
         </CameraView>
       ) : (
-        <View style={StyleSheet.absoluteFill} />
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: 'black' }]} />
       )}
     </View>
   );
@@ -165,6 +162,7 @@ export default function ScanScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: 'black',
   },
   permissionContainer: {
     flex: 1,
@@ -182,13 +180,16 @@ const styles = StyleSheet.create({
   },
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.1)',
   },
   topBar: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     paddingHorizontal: 20,
-    paddingTop: 60,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 10,
   },
   iconButton: {
     width: 48,
@@ -196,15 +197,17 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: 'rgba(0,0,0,0.4)',
   },
   modeSwitcherContainer: {
     alignItems: 'center',
-    marginTop: 20,
+    zIndex: 10,
   },
   modeSwitcher: {
     flexDirection: 'row',
     borderRadius: 30,
     padding: 4,
+    backgroundColor: 'rgba(0,0,0,0.5)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.1)',
   },
@@ -215,67 +218,20 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 24,
   },
-  frameContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+  activeMode: {
+    backgroundColor: theme.colors.tertiaryContainer,
   },
-  frame: {
-    width: SCANNER_SIZE,
-    height: SCANNER_SIZE,
-    position: 'relative',
-  },
-  corner: {
-    position: 'absolute',
-    width: 40,
-    height: 40,
-    borderWidth: 6,
-  },
-  topLeft: {
-    top: 0,
-    left: 0,
-    borderBottomWidth: 0,
-    borderRightWidth: 0,
-    borderTopLeftRadius: 16,
-  },
-  topRight: {
-    top: 0,
-    right: 0,
-    borderBottomWidth: 0,
-    borderLeftWidth: 0,
-    borderTopRightRadius: 16,
-  },
-  bottomLeft: {
-    bottom: 0,
-    left: 0,
-    borderTopWidth: 0,
-    borderRightWidth: 0,
-    borderBottomLeftRadius: 16,
-  },
-  bottomRight: {
-    bottom: 0,
-    right: 0,
-    borderTopWidth: 0,
-    borderLeftWidth: 0,
-    borderBottomRightRadius: 16,
-  },
-  scanLine: {
-    position: 'absolute',
-    top: '50%',
-    left: 0,
-    width: '100%',
-    height: 2,
-    opacity: 0.5,
-    shadowColor: '#9bf4ce',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: 8,
+  modeText: {
+    ...theme.typography.labelMedium,
+    marginLeft: 8,
   },
   bottomArea: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
     alignItems: 'center',
-    paddingBottom: 80,
     paddingTop: 40,
-    backgroundColor: 'rgba(0,0,0,0.4)',
   },
   guidanceLabel: {
     backgroundColor: 'rgba(0,0,0,0.3)',
@@ -284,7 +240,12 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.1)',
-    marginBottom: 30,
+    marginBottom: 20,
+  },
+  guidanceText: {
+    ...theme.typography.bodyMedium,
+    color: 'white',
+    textAlign: 'center',
   },
   captureButtonOuter: {
     width: 88,
@@ -294,6 +255,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255,255,255,0.4)',
     alignItems: 'center',
     justifyContent: 'center',
+    marginBottom: 20,
   },
   captureButtonInner: {
     width: 64,
@@ -307,6 +269,11 @@ const styles = StyleSheet.create({
     elevation: 5,
   },
   manualEntryLink: {
-    marginTop: 40,
+    marginTop: 10,
+  },
+  manualEntryText: {
+    ...theme.typography.button,
+    color: 'white',
+    textDecorationLine: 'underline',
   },
 });

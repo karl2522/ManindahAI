@@ -115,6 +115,10 @@ export default function InventoryScreen() {
     setModalVisible(true);
   };
 
+  const openDetailsScreen = (product: Product) => {
+    router.push({ pathname: '/product/compare_product', params: { id: product.product_id } });
+  };
+
   const handleSave = async () => {
     if (!store) return;
     setSaving(true);
@@ -248,6 +252,7 @@ export default function InventoryScreen() {
             item={item} 
             onAdjust={() => openAdjustModal(item)}
             onEdit={() => openEditModal(item)}
+            onPress={() => openDetailsScreen(item)}
           />
         )}
       />
@@ -362,7 +367,7 @@ export default function InventoryScreen() {
             </ScrollView>
 
             <View style={styles.modalFooter}>
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={[styles.saveButton, { backgroundColor: theme.colors.primary }]}
                 onPress={handleSave}
                 disabled={saving}
@@ -383,16 +388,20 @@ export default function InventoryScreen() {
   );
 }
 
-function ProductItem({ item, onAdjust, onEdit }: { item: Product, onAdjust: () => void, onEdit: () => void }) {
+function ProductItem({ item, onAdjust, onEdit, onPress }: { item: Product, onAdjust: () => void, onEdit: () => void, onPress: () => void }) {
   const isLow = item.quantity <= LOW_STOCK_THRESHOLD;
   const pending = isTemp(item.product_id);
 
   return (
-    <View style={[
-      styles.productCard, 
-      { backgroundColor: theme.colors.surface, borderColor: isLow ? theme.colors.errorContainer : 'transparent' },
-      isLow && styles.lowStockCard
-    ]}>
+    <TouchableOpacity 
+      activeOpacity={0.7}
+      onPress={onPress}
+      style={[
+        styles.productCard, 
+        { backgroundColor: theme.colors.surface, borderColor: isLow ? theme.colors.errorContainer : 'transparent' },
+        isLow && styles.lowStockCard
+      ]}
+    >
       {isLow && (
         <View style={[styles.lowStockBadge, { backgroundColor: theme.colors.error }]}>
           <Text style={[theme.typography.labelMedium, { color: theme.colors.onError, fontWeight: '700' }]}>
@@ -464,7 +473,7 @@ function ProductItem({ item, onAdjust, onEdit }: { item: Product, onAdjust: () =
           </View>
         </View>
       </View>
-    </View>
+    </TouchableOpacity>
   );
 }
 
@@ -657,5 +666,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.2,
     shadowRadius: 8,
     elevation: 6,
+  },
+  manualEntryText: {
+    ...theme.typography.button,
+    color: 'white',
+    textDecorationLine: 'underline',
   },
 });
