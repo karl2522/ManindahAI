@@ -72,11 +72,11 @@ export default function TabsIndex() {
           onPress={() => Alert.alert('Supplier Matrix', 'Opening supplier management...')}
         />
         <ActionButton 
-          icon="settings" 
-          label="Settings" 
+          icon="account-circle" 
+          label="Profile" 
           color={theme.colors.surfaceVariant} 
-          iconColor={theme.colors.onSurfaceVariant} 
-          onPress={() => Alert.alert('Settings', 'Opening store settings...')}
+          iconColor={theme.colors.primary} 
+          onPress={() => router.push('/(tabs)/profile')}
         />
       </View>
 

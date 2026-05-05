@@ -140,6 +140,13 @@ export default function TabsLayout() {
           ),
         }}
       />
+      <Tabs.Screen
+        name="profile"
+        options={{
+          href: null,
+          tabBarStyle: { display: 'none' },
+        }}
+      />
       {/* Hidden legacy tab */}
       <Tabs.Screen
         name="products"
