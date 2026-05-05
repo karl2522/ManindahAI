@@ -14,10 +14,20 @@
       "backgroundColor": "#ffffff"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "We use your location to center the map and help you pin your store.",
+        "NSPhotoLibraryUsageDescription": "Allow access to upload a photo of your store."
+      }
     },
     "android": {
       "package": "com.manindahai.app",
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "READ_MEDIA_IMAGES",
+        "READ_EXTERNAL_STORAGE"
+      ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
@@ -30,7 +40,8 @@
       "expo-router",
       "expo-web-browser",
       "expo-font",
-      "expo-asset"
+      "expo-asset",
+      "expo-image-picker"
     ]
   }
 }

@@ -4,10 +4,24 @@ import { TouchableOpacity, Alert, Platform, View, Text, StyleSheet } from 'react
 import { useQueryClient } from '@tanstack/react-query';
 import { AuthService } from '../../src/services/auth';
 import { theme } from '../../src/theme/theme';
+import { useStore } from '../../src/hooks/useStore';
+import { useEffect } from 'react';
 
 export default function TabsLayout() {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const { roles, loading, error, store } = useStore();
+
+  useEffect(() => {
+    if (loading) return;
+    if (error === 'Not authenticated') {
+      router.replace('/(auth)/login');
+      return;
+    }
+    if (!roles.includes('owner') && !store) {
+      router.replace('/(customer)');
+    }
+  }, [loading, error, roles, store, router]);
 
   const doLogout = async () => {
     try {

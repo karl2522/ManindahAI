@@ -34,8 +34,9 @@ export default function LoginScreen() {
   const handleGoogleCredential = async (idToken: string) => {
     setLoading(true);
     try {
-      await AuthService.loginWithGoogleCredential(idToken);
-      router.replace('/(tabs)');
+      const { profile } = await AuthService.loginWithGoogleCredential(idToken);
+      const roles = profile.roles ?? [];
+      router.replace(roles.includes('owner') ? '/(tabs)' : '/(customer)');
     } catch (error: any) {
       Alert.alert('Google Login Error', error.message);
     } finally {
@@ -53,8 +54,8 @@ export default function LoginScreen() {
     try {
       const { profile } = await AuthService.loginWithEmail(email, password);
       Alert.alert('Success', `Logged in successfully as ${profile.roles?.[0] || 'user'}!`);
-      // Navigate to tabs
-      router.replace('/(tabs)');
+      const roles = profile.roles ?? [];
+      router.replace(roles.includes('owner') ? '/(tabs)' : '/(customer)');
     } catch (error: any) {
       Alert.alert('Login Error', error.message);
     } finally {
@@ -67,7 +68,8 @@ export default function LoginScreen() {
       setLoading(true);
       try {
         const { profile } = await AuthService.loginWithGoogle();
-        router.replace('/(tabs)');
+        const roles = profile.roles ?? [];
+        router.replace(roles.includes('owner') ? '/(tabs)' : '/(customer)');
       } catch (error: any) {
         Alert.alert('Google Login Error', error.message);
       } finally {
