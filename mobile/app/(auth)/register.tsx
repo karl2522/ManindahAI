@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, Alert } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, TextInput, Alert, Image } from 'react-native';
 import { useState } from 'react';
 import { AuthService } from '../../src/services/auth';
 import { useRouter } from 'expo-router';
@@ -39,7 +39,11 @@ export default function RegisterScreen() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Create Account</Text>
+      <Image 
+        source={require('../../assets/logo.png')} 
+        style={styles.logo} 
+        resizeMode="contain" 
+      />
       <Text style={styles.subtitle}>Sign up to get started</Text>
 
       <View style={styles.inputContainer}>
@@ -89,6 +93,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 20,
     backgroundColor: '#f5f5f5',
+  },
+  logo: {
+    width: 200,
+    height: 200,
+    marginBottom: 10,
   },
   title: {
     fontSize: 28,
