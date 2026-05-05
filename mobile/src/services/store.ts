@@ -8,13 +8,18 @@ export type Store = {
   user_id: string;
   store_name: string;
   address: string | null;
+  contact_number: string | null;
   latitude: number | null;
   longitude: number | null;
   image_url: string | null;
+  open_time: string | null;
+  close_time: string | null;
   status: StoreStatus;
   created_at: string;
   updated_at: string;
 };
+
+export type UpdateStoreInput = Partial<Pick<Store, 'store_name' | 'address' | 'contact_number' | 'latitude' | 'longitude' | 'image_url' | 'open_time' | 'close_time' | 'status'>>;
 
 export const StoreService = {
   /**
@@ -26,13 +31,13 @@ export const StoreService = {
       .from('stores')
       .select('*')
       .eq('user_id', user_id)
-      .single();
+      .maybeSingle();
 
     if (error) {
-      if (error.code === 'PGRST116') return null;
       throw new Error(`Failed to fetch store: ${error.message}`);
     }
 
+    if (!data) return null;
     return data as Store;
   },
 
@@ -49,6 +54,22 @@ export const StoreService = {
     if (error) throw new Error(`Failed to create store: ${error.message}`);
 
     await UserService.addRole(user_id, 'owner');
+
+    return data as Store;
+  },
+
+  /**
+   * Update store details (address, location, etc.).
+   */
+  async update(store_id: string, input: UpdateStoreInput): Promise<Store> {
+    const { data, error } = await supabase
+      .from('stores')
+      .update(input)
+      .eq('store_id', store_id)
+      .select()
+      .single();
+
+    if (error) throw new Error(`Failed to update store: ${error.message}`);
 
     return data as Store;
   },
