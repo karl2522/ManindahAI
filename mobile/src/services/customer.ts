@@ -164,7 +164,7 @@ export const CustomerService = {
       rating: data.rating,
       comment: data.comment,
       created_at: data.created_at,
-      author_name: data.users?.name ?? null,
+      author_name: data.users?.[0]?.name ?? null,
     };
   },
 
