@@ -40,6 +40,9 @@ export default function ScanScreen() {
   const [isProcessing, setIsProcessing] = useState(false);
   const cameraRef = useRef<any>(null);
 
+  // Track abort controller for in-flight requests
+  const abortControllerRef = useRef<AbortController | null>(null);
+
   // Toast notification state
   const [toast, setToast] = useState<{
     icon: string;
@@ -71,6 +74,8 @@ export default function ScanScreen() {
     }).start(() => {
       setToast(null);
       setScanned(false);
+      // ⚠️ NOTE: Do NOT reset isProcessing here — it may still be running
+      // The finally block in handleCaptureReceipt handles this cleanup
     });
   }, [toastAnim]);
 
@@ -98,6 +103,28 @@ export default function ScanScreen() {
       scanLineAnim.stopAnimation();
     }
   }, [mode, isFocused, scanned, isProcessing]);
+
+  // ── CLEANUP EFFECT: Reset state when user navigates away ──────────────
+  // This ensures that if user presses back during processing, all state is reset
+  // for the next visit to this screen.
+  useEffect(() => {
+    return () => {
+      // Cancel any in-flight API requests when unmounting
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
+      
+      // Reset processing flag to prevent orphaned state
+      setIsProcessing(false);
+      setScanned(false);
+      setToast(null);
+      toastAnim.setValue(-200);
+      
+      // Stop web scanner polling
+      webScanActiveRef.current = false;
+    };
+  }, []);
 
   // ── Web-Only: BarcodeDetector frame polling ──────────────────────────
   // expo-camera's onBarcodeScanned does NOT work on web.
@@ -215,7 +242,13 @@ export default function ScanScreen() {
           message: `"${productName}" is already in your inventory.`,
           barcode: data,
           primaryLabel: 'View Inventory',
-          primaryAction: () => { hideToast(); router.push('/(tabs)/inventory'); },
+          primaryAction: () => { 
+            hideToast();
+            // Reset state before navigating
+            abortControllerRef.current?.abort();
+            abortControllerRef.current = null;
+            router.push('/(tabs)/inventory'); 
+          },
         });
       } else if (productName) {
         showToast({
@@ -228,6 +261,9 @@ export default function ScanScreen() {
           primaryLabel: 'Add to Inventory',
           primaryAction: () => {
             hideToast();
+            // Reset state before navigating
+            abortControllerRef.current?.abort();
+            abortControllerRef.current = null;
             router.push({ pathname: '/(tabs)/inventory', params: { scannedBarcode: data, scannedName: productName, scannedCategory: productCategory, scannedSource: source } });
           },
         });
@@ -242,6 +278,9 @@ export default function ScanScreen() {
           primaryLabel: 'Go to Inventory',
           primaryAction: () => {
             hideToast();
+            // Reset state before navigating
+            abortControllerRef.current?.abort();
+            abortControllerRef.current = null;
             router.push({ pathname: '/(tabs)/inventory', params: { scannedBarcode: data, scannedSource: 'not_found' } });
           },
         });
@@ -258,6 +297,9 @@ export default function ScanScreen() {
         primaryLabel: 'Go to Inventory',
         primaryAction: () => {
           hideToast();
+          // Reset state before navigating
+          abortControllerRef.current?.abort();
+          abortControllerRef.current = null;
           router.push({ pathname: '/(tabs)/inventory', params: { scannedBarcode: data, scannedSource: 'not_found' } });
         },
       });
@@ -272,16 +314,25 @@ export default function ScanScreen() {
     try {
       setIsProcessing(true);
       
+      // Create abort controller for this operation
+      abortControllerRef.current = new AbortController();
+      
       // Capture the photo
       const photo = await cameraRef.current.takePictureAsync({
         quality: 0.8,
         base64: true,
       });
 
+      // Check if operation was aborted (user navigated away)
+      if (abortControllerRef.current?.signal?.aborted) {
+        console.log('[Scanner] Operation aborted by user navigation');
+        setIsProcessing(false);
+        return;
+      }
+
       console.log('[Scanner] Photo captured:', photo.uri);
 
       let finalItems: any[] = [];
-      let usedCloud = false;
 
       // Tier 1 (Cloud - Vision): Use high-fidelity AI first as requested for better handwriting support
       console.log('[Scanner] Tier 1 (Cloud Vision) attempting...');
@@ -290,10 +341,16 @@ export default function ScanScreen() {
         finalItems = ReceiptParser.parse(googleBlocks);
         if (finalItems.length > 0) {
           console.log('[Scanner] Tier 1 (Google Vision) succeeded.');
-          usedCloud = true;
         }
       } catch (err) {
         console.warn('[Scanner] Tier 1 (Google Vision) failed, falling back...');
+      }
+
+      // Check again if operation was aborted
+      if (abortControllerRef.current?.signal?.aborted) {
+        console.log('[Scanner] Operation aborted during Tier 1');
+        setIsProcessing(false);
+        return;
       }
 
       // Tier 2 (Cloud - Gemini): Reasoning AI fallback
@@ -304,11 +361,17 @@ export default function ScanScreen() {
           if (geminiItems.length > 0) {
             finalItems = geminiItems;
             console.log('[Scanner] Tier 2 (Gemini) succeeded.');
-            usedCloud = true;
           }
         } catch (err) {
           console.warn('[Scanner] Tier 2 (Gemini) failed, falling back...');
         }
+      }
+
+      // Check again if operation was aborted
+      if (abortControllerRef.current?.signal?.aborted) {
+        console.log('[Scanner] Operation aborted during Tier 2');
+        setIsProcessing(false);
+        return;
       }
 
       // Tier 3 (Offline - Local OCR): Only if enabled and cloud failed
@@ -319,6 +382,13 @@ export default function ScanScreen() {
         if (finalItems.length > 0) {
           console.log('[Scanner] Tier 3 (Local OCR) succeeded.');
         }
+      }
+
+      // Check one final time before navigating
+      if (abortControllerRef.current?.signal?.aborted) {
+        console.log('[Scanner] Operation aborted before navigation');
+        setIsProcessing(false);
+        return;
       }
 
       // If all tiers failed
@@ -347,10 +417,17 @@ export default function ScanScreen() {
       });
 
     } catch (e: any) {
+      // Don't log if operation was aborted
+      if (abortControllerRef.current?.signal?.aborted) {
+        console.log('[Scanner] Error caught but operation was already aborted');
+        setIsProcessing(false);
+        return;
+      }
       console.error('[Scanner] OCR Capture Error:', e);
       Alert.alert('Scanning Failed', 'There was an error processing the receipt. Please try again.');
     } finally {
       setIsProcessing(false);
+      abortControllerRef.current = null;
     }
   };
 
@@ -386,7 +463,19 @@ export default function ScanScreen() {
             <View style={[styles.topBar, { paddingTop: Math.max(insets.top, 20) }]}>
               <TouchableOpacity 
                 style={styles.iconButton}
-                onPress={() => router.back()}
+                onPress={() => {
+                  // 🔴 CRITICAL: Reset state immediately on back press
+                  // Don't wait for async operations to complete
+                  if (isProcessing) {
+                    abortControllerRef.current?.abort();
+                    abortControllerRef.current = null;
+                    setIsProcessing(false);
+                    setScanned(false);
+                    setToast(null);
+                    toastAnim.setValue(-200);
+                  }
+                  router.back();
+                }}
               >
                 <MaterialIcons name="close" size={28} color="white" />
               </TouchableOpacity>
