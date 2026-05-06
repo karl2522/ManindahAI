@@ -47,6 +47,13 @@ export default function RootLayout() {
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="(customer)" options={{ headerShown: false }} />
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+        <Stack.Screen 
+          name="review-ocr" 
+          options={{ 
+            presentation: 'modal',
+            headerTitle: 'Verify Scanned Items'
+          }} 
+        />
         <Stack.Screen name="+not-found" />
       </Stack>
     </PersistQueryClientProvider>

@@ -8,16 +8,19 @@ import {
   Modal,
   TextInput,
   StyleSheet,
-  Alert,
   ActivityIndicator,
   ScrollView,
   Platform,
+  Image,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+import { MaterialIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useStore } from '../../src/hooks/useStore';
 import { ProductService, Product, CreateProductInput } from '../../src/services/product';
 import { StoreService } from '../../src/services/store';
 import { addToOutbox } from '../../src/lib/outbox';
+import { theme } from '../../src/theme/theme';
 
 const isTemp = (id: string) => id.startsWith('temp_');
 
@@ -27,6 +30,7 @@ type FormData = {
   selling_price: string;
   quantity: string;
   category: string;
+  image_url: string;
 };
 
 const EMPTY_FORM: FormData = {
@@ -35,6 +39,7 @@ const EMPTY_FORM: FormData = {
   selling_price: '',
   quantity: '0',
   category: '',
+  image_url: '',
 };
 
 export default function ProductsScreen() {
@@ -65,16 +70,14 @@ export default function ProductsScreen() {
   );
 
   const handleCreateStore = async () => {
-    if (!userId || !storeName.trim()) {
-      Alert.alert('Validation', 'Please enter a store name.');
-      return;
-    }
+    if (!userId || !storeName.trim()) return;
+    
     setCreatingStore(true);
     try {
       const newStore = await StoreService.create(userId, storeName.trim());
       setStore(newStore);
     } catch (e: any) {
-      Alert.alert('Error', e.message);
+      console.error('[Products] Store creation failed:', e.message);
     } finally {
       setCreatingStore(false);
     }
@@ -94,8 +97,22 @@ export default function ProductsScreen() {
       selling_price: String(product.selling_price),
       quantity: String(product.quantity),
       category: product.category ?? '',
+      image_url: product.image_url ?? '',
     });
     setModalVisible(true);
+  };
+
+  const pickImage = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.7,
+    });
+
+    if (!result.canceled) {
+      setForm(f => ({ ...f, image_url: result.assets[0].uri }));
+    }
   };
 
   const handleSave = async () => {
@@ -112,6 +129,7 @@ export default function ProductsScreen() {
         selling_price: parseFloat(form.selling_price) || 0,
         quantity: parseInt(form.quantity, 10) || 0,
         category: form.category.trim() || undefined,
+        image_url: form.image_url || undefined,
       };
 
       if (onlineManager.isOnline()) {
@@ -138,6 +156,7 @@ export default function ProductsScreen() {
             selling_price: payload.selling_price,
             quantity: payload.quantity,
             category: payload.category ?? null,
+            image_url: payload.image_url ?? null,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           };
@@ -147,7 +166,7 @@ export default function ProductsScreen() {
       }
       setModalVisible(false);
     } catch (e: any) {
-      Alert.alert('Error', e.message);
+      console.error('[Products] Save error:', e.message);
     } finally {
       setSaving(false);
     }
@@ -168,22 +187,11 @@ export default function ProductsScreen() {
           await addToOutbox({ op: 'product_delete', store_id: store!.store_id, product_id: product.product_id });
         }
       } catch (e: any) {
-        Alert.alert('Error', e.message);
+        console.error('[Products] Delete error:', e.message);
       }
     };
 
-    if (Platform.OS === 'web') {
-      if (window.confirm(`Delete "${product.name}"? This cannot be undone.`)) doDelete();
-    } else {
-      Alert.alert(
-        'Delete Product',
-        `Delete "${product.name}"? This cannot be undone.`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Delete', style: 'destructive', onPress: doDelete },
-        ]
-      );
-    }
+    doDelete();
   };
 
   if (storeLoading) {
@@ -254,21 +262,30 @@ export default function ProductsScreen() {
           keyExtractor={(item) => item.product_id}
           renderItem={({ item }) => (
             <TouchableOpacity
-              style={[styles.productCard, isTemp(item.product_id) && styles.pendingCard]}
+              style={[styles.productCard, isTemp(item.product_id) && styles.pendingCard, { backgroundColor: theme.colors.surface }]}
               onPress={() => !isTemp(item.product_id) && openEditModal(item)}
               onLongPress={() => handleDelete(item)}
               disabled={isTemp(item.product_id)}
             >
-              <View style={styles.productInfo}>
-                <Text style={styles.productName}>{item.name}</Text>
-                {isTemp(item.product_id) ? (
-                  <Text style={styles.pendingText}>⏳ Pending sync</Text>
-                ) : item.category ? (
-                  <Text style={styles.productCategory}>{item.category}</Text>
-                ) : null}
+              <View style={styles.productLeft}>
+                <View style={[styles.imageThumb, { backgroundColor: theme.colors.surfaceContainerLow }]}>
+                  {item.image_url ? (
+                    <Image source={{ uri: item.image_url }} style={styles.thumbImage} />
+                  ) : (
+                    <MaterialIcons name="inventory" size={24} color={theme.colors.outline} />
+                  )}
+                </View>
+                <View style={styles.productInfo}>
+                  <Text style={[styles.productName, { color: theme.colors.onSurface }]}>{item.name}</Text>
+                  {isTemp(item.product_id) ? (
+                    <Text style={styles.pendingText}>⏳ Pending sync</Text>
+                  ) : item.category ? (
+                    <Text style={styles.productCategory}>{item.category}</Text>
+                  ) : null}
+                </View>
               </View>
               <View style={styles.productRight}>
-                <Text style={styles.priceText}>₱{item.selling_price.toFixed(2)}</Text>
+                <Text style={[styles.priceText, { color: theme.colors.primary }]}>₱{item.selling_price.toFixed(2)}</Text>
                 <Text style={[styles.stockText, item.quantity <= 5 && styles.lowStock]}>
                   Stock: {item.quantity}
                 </Text>
@@ -286,35 +303,56 @@ export default function ProductsScreen() {
               {editingProduct ? 'Edit Product' : 'Add Product'}
             </Text>
             <ScrollView showsVerticalScrollIndicator={false}>
+              <TouchableOpacity 
+                style={[styles.imagePicker, { backgroundColor: theme.colors.surfaceContainerLow }]} 
+                onPress={pickImage}
+              >
+                {form.image_url ? (
+                  <View style={styles.imagePreviewContainer}>
+                    <Image source={{ uri: form.image_url }} style={styles.imagePreview} />
+                    <View style={styles.imageOverlay}>
+                      <MaterialIcons name="edit" size={24} color="white" />
+                    </View>
+                  </View>
+                ) : (
+                  <View style={styles.imagePlaceholder}>
+                    <MaterialIcons name="add-a-photo" size={32} color={theme.colors.outline} />
+                    <Text style={[theme.typography.labelMedium, { color: theme.colors.outline, marginTop: 8 }]}>
+                      Add Product Image (Optional)
+                    </Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+
               <TextInput
-                style={styles.input}
+                style={[styles.input, { borderColor: theme.colors.outlineVariant }]}
                 placeholder="Product name *"
                 value={form.name}
                 onChangeText={(v) => setForm((f) => ({ ...f, name: v }))}
               />
               <TextInput
-                style={styles.input}
+                style={[styles.input, { borderColor: theme.colors.outlineVariant }]}
                 placeholder="Cost price (original)"
                 value={form.original_price}
                 onChangeText={(v) => setForm((f) => ({ ...f, original_price: v }))}
                 keyboardType="decimal-pad"
               />
               <TextInput
-                style={styles.input}
+                style={[styles.input, { borderColor: theme.colors.outlineVariant }]}
                 placeholder="Selling price"
                 value={form.selling_price}
                 onChangeText={(v) => setForm((f) => ({ ...f, selling_price: v }))}
                 keyboardType="decimal-pad"
               />
               <TextInput
-                style={styles.input}
+                style={[styles.input, { borderColor: theme.colors.outlineVariant }]}
                 placeholder="Quantity"
                 value={form.quantity}
                 onChangeText={(v) => setForm((f) => ({ ...f, quantity: v }))}
                 keyboardType="number-pad"
               />
               <TextInput
-                style={styles.input}
+                style={[styles.input, { borderColor: theme.colors.outlineVariant }]}
                 placeholder="Category (optional)"
                 value={form.category}
                 onChangeText={(v) => setForm((f) => ({ ...f, category: v }))}
@@ -430,4 +468,50 @@ const styles = StyleSheet.create({
   },
   modalTitle: { fontSize: 18, fontWeight: '700', color: '#333', marginBottom: 16 },
   modalButtons: { flexDirection: 'row', marginTop: 8 },
+  imagePicker: {
+    height: 180,
+    borderRadius: 12,
+    marginBottom: 20,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#eee',
+    borderStyle: 'dashed',
+  },
+  imagePlaceholder: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imagePreviewContainer: {
+    flex: 1,
+    position: 'relative',
+  },
+  imagePreview: {
+    width: '100%',
+    height: '100%',
+  },
+  imageOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  productLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    gap: 12,
+  },
+  imageThumb: {
+    width: 50,
+    height: 50,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    overflow: 'hidden',
+  },
+  thumbImage: {
+    width: '100%',
+    height: '100%',
+  },
 });

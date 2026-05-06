@@ -8,6 +8,7 @@ export type Product = {
   selling_price: number;
   quantity: number;
   category: string | null;
+  image_url: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -19,6 +20,7 @@ export type CreateProductInput = {
   selling_price: number;
   quantity: number;
   category?: string;
+  image_url?: string;
 };
 
 export type UpdateProductInput = Partial<Omit<CreateProductInput, 'store_id'>>;
@@ -33,6 +35,7 @@ export type OCRProductEntry = {
   selling_price?: number;
   quantity?: number;
   category?: string;
+  image_url?: string;
 };
 
 export const ProductService = {
@@ -78,6 +81,7 @@ export const ProductService = {
       selling_price: e.selling_price ?? 0,
       quantity: e.quantity ?? 0,
       category: e.category ?? null,
+      image_url: e.image_url ?? null,
     }));
 
     const { data, error } = await supabase

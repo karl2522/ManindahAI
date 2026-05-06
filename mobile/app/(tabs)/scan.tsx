@@ -9,6 +9,14 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useStore } from '../../src/hooks/useStore';
 import { BarcodeService } from '../../src/services/barcodeService';
+import { OCRService } from '../../src/services/ocrService';
+import { ReceiptParser } from '../../src/services/receiptParser';
+import { GeminiService } from '../../src/services/geminiService';
+import { GoogleVisionService } from '../../src/services/googleVisionService';
+
+// --- OCR Configuration ---
+// Toggle for offline-first processing. If false, we use Cloud AI first for better accuracy on handwriting.
+const ENABLE_LOCAL_OCR = false; 
 
 // Type declaration for the Web BarcodeDetector API (Chrome 83+)
 // This API is not available on native or older browsers.
@@ -30,6 +38,7 @@ export default function ScanScreen() {
   const [mode, setMode] = useState<'barcode' | 'receipt'>('barcode');
   const [scanned, setScanned] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const cameraRef = useRef<any>(null);
 
   // Toast notification state
   const [toast, setToast] = useState<{
@@ -257,6 +266,94 @@ export default function ScanScreen() {
     }
   };
 
+  const handleCaptureReceipt = async () => {
+    if (!cameraRef.current || isProcessing) return;
+
+    try {
+      setIsProcessing(true);
+      
+      // Capture the photo
+      const photo = await cameraRef.current.takePictureAsync({
+        quality: 0.8,
+        base64: true,
+      });
+
+      console.log('[Scanner] Photo captured:', photo.uri);
+
+      let finalItems: any[] = [];
+      let usedCloud = false;
+
+      // Tier 1 (Cloud - Vision): Use high-fidelity AI first as requested for better handwriting support
+      console.log('[Scanner] Tier 1 (Cloud Vision) attempting...');
+      try {
+        const googleBlocks = await GoogleVisionService.recognizeTextFromBase64(photo.base64);
+        finalItems = ReceiptParser.parse(googleBlocks);
+        if (finalItems.length > 0) {
+          console.log('[Scanner] Tier 1 (Google Vision) succeeded.');
+          usedCloud = true;
+        }
+      } catch (err) {
+        console.warn('[Scanner] Tier 1 (Google Vision) failed, falling back...');
+      }
+
+      // Tier 2 (Cloud - Gemini): Reasoning AI fallback
+      if (finalItems.length === 0) {
+        console.log('[Scanner] Tier 2 (Cloud Gemini) attempting...');
+        try {
+          const geminiItems = await GeminiService.recognizeReceiptFromBase64(photo.base64);
+          if (geminiItems.length > 0) {
+            finalItems = geminiItems;
+            console.log('[Scanner] Tier 2 (Gemini) succeeded.');
+            usedCloud = true;
+          }
+        } catch (err) {
+          console.warn('[Scanner] Tier 2 (Gemini) failed, falling back...');
+        }
+      }
+
+      // Tier 3 (Offline - Local OCR): Only if enabled and cloud failed
+      if (finalItems.length === 0 && ENABLE_LOCAL_OCR) {
+        console.log('[Scanner] Tier 3 (Local OCR) attempting fallback...');
+        const ocrResult = await OCRService.recognizeText(photo.uri);
+        finalItems = ReceiptParser.parse(ocrResult.blocks);
+        if (finalItems.length > 0) {
+          console.log('[Scanner] Tier 3 (Local OCR) succeeded.');
+        }
+      }
+
+      // If all tiers failed
+      if (finalItems.length === 0) {
+        Alert.alert(
+          'Scan Failed',
+          'All intelligent scanning tiers failed to find clear items. Would you like to enter items manually?',
+          [
+            { text: 'Try Again', style: 'cancel' },
+            { 
+              text: 'Enter Manually', 
+              onPress: () => Alert.alert('Manual Entry', 'Switching to manual entry mode...') 
+            }
+          ]
+        );
+        return;
+      }
+
+      // Navigate to Review Screen
+      router.push({
+        pathname: '/review-ocr',
+        params: { 
+          items: JSON.stringify(finalItems),
+          imageUri: photo.uri 
+        }
+      });
+
+    } catch (e: any) {
+      console.error('[Scanner] OCR Capture Error:', e);
+      Alert.alert('Scanning Failed', 'There was an error processing the receipt. Please try again.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
   const translateY = scanLineAnim.interpolate({
     inputRange: [0, 1],
     outputRange: [0, 200] 
@@ -269,9 +366,11 @@ export default function ScanScreen() {
       {isFocused ? (
         <View style={StyleSheet.absoluteFill}>
           <CameraView 
+            ref={cameraRef}
             style={[StyleSheet.absoluteFill, isMirrored && { transform: [{ scaleX: -1 }] }]} 
             enableTorch={flash}
             facing={facing}
+            autofocus="on"
             barcodeScannerSettings={{
               barcodeTypes: ['ean13', 'ean8', 'upc_a'],
             }}
@@ -364,11 +463,34 @@ export default function ScanScreen() {
               </View>
             )}
 
+            {mode === 'receipt' && !isProcessing && (
+              <View style={styles.scanTargetContainer}>
+                <View style={[styles.scanTarget, styles.receiptTarget]}>
+                  {/* Focus tracking corner brackets */}
+                  <View style={[styles.corner, styles.topLeft]} />
+                  <View style={[styles.corner, styles.topRight]} />
+                  <View style={[styles.corner, styles.bottomLeft]} />
+                  <View style={[styles.corner, styles.bottomRight]} />
+                </View>
+                <View style={[styles.scanStatusLabel, { backgroundColor: 'rgba(0,180,216,0.6)' }]}>
+                  <MaterialIcons name="filter-center-focus" size={16} color="white" style={{ marginRight: 8 }} />
+                  <Text style={styles.scanStatusText}>Focus text clearly inside the frame</Text>
+                </View>
+                <View style={styles.tipContainer}>
+                  <Text style={styles.tipText}>
+                    <MaterialIcons name="auto-awesome" size={12} color="#ffd700" /> Hybrid Engine: Prioritizing Cloud AI (Vision/Gemini) for maximum accuracy on handwriting.
+                  </Text>
+                </View>
+              </View>
+            )}
+
             {/* Processing Indicator */}
             {isProcessing && (
               <View style={styles.processingContainer}>
                 <ActivityIndicator size="large" color={theme.colors.primary} />
-                <Text style={styles.processingText}>Looking up product...</Text>
+                <Text style={styles.processingText}>
+                  {mode === 'barcode' ? 'Looking up product...' : 'Triple-Tier AI Processing...'}
+                </Text>
               </View>
             )}
 
@@ -391,9 +513,8 @@ export default function ScanScreen() {
                   <TouchableOpacity 
                     style={styles.captureButtonOuter} 
                     activeOpacity={0.8}
-                    onPress={() => {
-                      Alert.alert('Capturing', 'Processing handwritten receipt with OCR...');
-                    }}
+                    disabled={isProcessing}
+                    onPress={handleCaptureReceipt}
                   >
                     <View style={styles.captureButtonInner} />
                   </TouchableOpacity>
@@ -466,6 +587,12 @@ const styles = StyleSheet.create({
   modeText: { ...theme.typography.labelMedium, marginLeft: 8 },
   scanTargetContainer: { position: 'absolute', top: '30%', left: 0, right: 0, alignItems: 'center' },
   scanTarget: { width: 250, height: 200, borderWidth: 2, borderColor: 'rgba(255,255,255,0.3)', borderRadius: 16, overflow: 'hidden' },
+  receiptTarget: { width: 280, height: 350, borderRadius: 12, borderWidth: 0, backgroundColor: 'transparent' },
+  corner: { position: 'absolute', width: 40, height: 40, borderColor: theme.colors.primary, borderWidth: 4 },
+  topLeft: { top: 0, left: 0, borderBottomWidth: 0, borderRightWidth: 0, borderTopLeftRadius: 12 },
+  topRight: { top: 0, right: 0, borderBottomWidth: 0, borderLeftWidth: 0, borderTopRightRadius: 12 },
+  bottomLeft: { bottom: 0, left: 0, borderTopWidth: 0, borderRightWidth: 0, borderBottomLeftRadius: 12 },
+  bottomRight: { bottom: 0, right: 0, borderTopWidth: 0, borderLeftWidth: 0, borderBottomRightRadius: 12 },
   scanLine: { width: '100%', height: 2, backgroundColor: theme.colors.primary, shadowColor: theme.colors.primary, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 1, shadowRadius: 10, elevation: 5 },
   scanStatusLabel: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.5)', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, marginTop: 12 },
   scanStatusText: { ...theme.typography.labelSmall, color: 'white' },

@@ -14,6 +14,7 @@ import {
   ScrollView,
   Platform,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { Stack, useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
@@ -65,9 +66,13 @@ export default function InventoryScreen() {
     original_price: '',
     category: '',
     quantity: '0',
+    image_url: '',
   });
 
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteModalVisible, setDeleteModalVisible] = useState(false);
+  const [productToDelete, setProductToDelete] = useState<Product | null>(null);
 
   useFocusEffect(
     useCallback(() => {
@@ -89,6 +94,7 @@ export default function InventoryScreen() {
       original_price: '',
       category: '',
       quantity: '',
+      image_url: '',
     });
     setModalMode('add');
     setModalVisible(true);
@@ -110,13 +116,61 @@ export default function InventoryScreen() {
       original_price: String(product.original_price),
       category: product.category || '',
       quantity: String(product.quantity),
+      image_url: product.image_url || '',
     });
     setModalMode('edit');
     setModalVisible(true);
   };
 
+  const pickImage = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.7,
+    });
+
+    if (!result.canceled) {
+      setEditForm(f => ({ ...f, image_url: result.assets[0].uri }));
+    }
+  };
+
   const openDetailsScreen = (product: Product) => {
     router.push({ pathname: '/product/compare_product', params: { id: product.product_id } });
+  };
+
+  const handleDelete = (product?: Product) => {
+    const target = product || selectedProduct;
+    if (!target) return;
+    setProductToDelete(target);
+    setDeleteModalVisible(true);
+  };
+
+  const confirmDelete = async () => {
+    if (!productToDelete || !store) return;
+
+    setDeleting(true);
+    try {
+      console.log(`[Inventory] Deleting product: ${productToDelete.product_id}`);
+      
+      if (!isTemp(productToDelete.product_id)) {
+        await ProductService.delete(productToDelete.product_id);
+      }
+      
+      // Optimistic cache update
+      queryClient.setQueryData<Product[]>(['products', store.store_id], (old = []) =>
+        old.filter(p => p.product_id !== productToDelete.product_id)
+      );
+      
+      setDeleteModalVisible(false);
+      setModalVisible(false);
+      setSelectedProduct(null);
+      setProductToDelete(null);
+    } catch (e: any) {
+      console.error('[Inventory] Delete failed:', e.message);
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const handleSave = async () => {
@@ -131,6 +185,7 @@ export default function InventoryScreen() {
           original_price: parseFloat(editForm.original_price) || 0,
           quantity: parseInt(editForm.quantity, 10) || 0,
           category: editForm.category.trim() || undefined,
+          image_url: editForm.image_url || undefined,
         };
         if (!newPayload.name) throw new Error('Product name is required');
         
@@ -142,6 +197,7 @@ export default function InventoryScreen() {
             ...newPayload,
             product_id: `temp_${Date.now()}`,
             category: newPayload.category || null,
+            image_url: newPayload.image_url || null,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           };
@@ -167,13 +223,14 @@ export default function InventoryScreen() {
           selling_price: parseFloat(editForm.selling_price) || 0,
           original_price: parseFloat(editForm.original_price) || 0,
           category: editForm.category.trim() || undefined,
+          image_url: editForm.image_url || undefined,
         };
 
         if (onlineManager.isOnline()) {
           await ProductService.update(selectedProduct.product_id, updatePayload);
         } else {
           queryClient.setQueryData<Product[]>(['products', store.store_id], (old = []) =>
-            old.map(p => p.product_id === selectedProduct.product_id ? { ...p, ...updatePayload, category: updatePayload.category || null } : p)
+            old.map(p => p.product_id === selectedProduct.product_id ? { ...p, ...updatePayload, category: updatePayload.category || null, image_url: updatePayload.image_url || null } : p)
           );
         }
       }
@@ -181,7 +238,7 @@ export default function InventoryScreen() {
       queryClient.invalidateQueries({ queryKey: ['products', store.store_id] });
       setModalVisible(false);
     } catch (e: any) {
-      Alert.alert('Error', e.message);
+      console.error('[Inventory] Save failed:', e.message);
     } finally {
       setSaving(false);
     }
@@ -252,6 +309,7 @@ export default function InventoryScreen() {
             item={item} 
             onAdjust={() => openAdjustModal(item)}
             onEdit={() => openEditModal(item)}
+            onDelete={() => handleDelete(item)}
             onPress={() => openDetailsScreen(item)}
           />
         )}
@@ -321,41 +379,67 @@ export default function InventoryScreen() {
                 </View>
               ) : (
                 <View style={styles.modalBody}>
-                  <Text style={[theme.typography.button, { color: theme.colors.onSurface, marginBottom: 8 }]}>Product Name</Text>
+                  <TouchableOpacity 
+                    style={[styles.imagePicker, { backgroundColor: theme.colors.surfaceContainerLow, borderColor: theme.colors.outlineVariant }]} 
+                    onPress={pickImage}
+                  >
+                    {editForm.image_url ? (
+                      <View style={styles.imagePreviewContainer}>
+                        <Image source={{ uri: editForm.image_url }} style={styles.imagePreview} resizeMode="cover" />
+                        <View style={styles.imageOverlay}>
+                          <MaterialIcons name="edit" size={24} color="white" />
+                        </View>
+                      </View>
+                    ) : (
+                      <View style={styles.imagePlaceholder}>
+                        <MaterialIcons name="add-a-photo" size={32} color={theme.colors.outline} />
+                        <Text style={[theme.typography.labelLarge, { color: theme.colors.outline, marginTop: 8 }]}>
+                          Add Product Image (Optional)
+                        </Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+
+                  <Text style={[theme.typography.bodyLarge, { color: theme.colors.onSurface, fontWeight: '500', marginBottom: 8 }]}>Product Name</Text>
                   <TextInput
                     style={[styles.modalInput, theme.typography.bodyLarge, { borderColor: theme.colors.outlineVariant }]}
+                    placeholder="e.g. Coca-Cola 1.5L"
                     value={editForm.name}
                     onChangeText={(v) => setEditForm(f => ({ ...f, name: v }))}
                   />
 
-                  <Text style={[theme.typography.button, { color: theme.colors.onSurface, marginBottom: 8, marginTop: 16 }]}>Selling Price (₱)</Text>
+                  <Text style={[theme.typography.bodyLarge, { color: theme.colors.onSurface, fontWeight: '500', marginBottom: 8, marginTop: 20 }]}>Selling Price (₱)</Text>
                   <TextInput
                     style={[styles.modalInput, theme.typography.bodyLarge, { borderColor: theme.colors.outlineVariant }]}
+                    placeholder="0.00"
                     value={editForm.selling_price}
                     onChangeText={(v) => setEditForm(f => ({ ...f, selling_price: v }))}
                     keyboardType="decimal-pad"
                   />
 
-                  <Text style={[theme.typography.button, { color: theme.colors.onSurface, marginBottom: 8, marginTop: 16 }]}>Cost Price (₱)</Text>
+                  <Text style={[theme.typography.bodyLarge, { color: theme.colors.onSurface, fontWeight: '500', marginBottom: 8, marginTop: 20 }]}>Cost Price (₱)</Text>
                   <TextInput
                     style={[styles.modalInput, theme.typography.bodyLarge, { borderColor: theme.colors.outlineVariant }]}
+                    placeholder="0.00"
                     value={editForm.original_price}
                     onChangeText={(v) => setEditForm(f => ({ ...f, original_price: v }))}
                     keyboardType="decimal-pad"
                   />
 
-                  <Text style={[theme.typography.button, { color: theme.colors.onSurface, marginBottom: 8, marginTop: 16 }]}>Category</Text>
+                  <Text style={[theme.typography.bodyLarge, { color: theme.colors.onSurface, fontWeight: '500', marginBottom: 8, marginTop: 20 }]}>Category</Text>
                   <TextInput
                     style={[styles.modalInput, theme.typography.bodyLarge, { borderColor: theme.colors.outlineVariant }]}
+                    placeholder="e.g. Beverages"
                     value={editForm.category}
                     onChangeText={(v) => setEditForm(f => ({ ...f, category: v }))}
                   />
 
                   {modalMode === 'add' && (
                     <>
-                      <Text style={[theme.typography.button, { color: theme.colors.onSurface, marginBottom: 8, marginTop: 16 }]}>Initial Quantity</Text>
+                      <Text style={[theme.typography.bodyLarge, { color: theme.colors.onSurface, fontWeight: '500', marginBottom: 8, marginTop: 20 }]}>Initial Quantity</Text>
                       <TextInput
                         style={[styles.modalInput, theme.typography.bodyLarge, { borderColor: theme.colors.outlineVariant }]}
+                        placeholder="0"
                         value={editForm.quantity}
                         onChangeText={(v) => setEditForm(f => ({ ...f, quantity: v }))}
                         keyboardType="number-pad"
@@ -367,10 +451,29 @@ export default function InventoryScreen() {
             </ScrollView>
 
             <View style={styles.modalFooter}>
+              {modalMode === 'edit' && (
+                <TouchableOpacity
+                  style={[styles.deleteButtonModal, { borderColor: theme.colors.error }]}
+                  onPress={() => handleDelete()}
+                  disabled={deleting}
+                >
+                  {deleting ? (
+                    <ActivityIndicator color={theme.colors.error} />
+                  ) : (
+                    <>
+                      <MaterialIcons name="delete-outline" size={20} color={theme.colors.error} />
+                      <Text style={[theme.typography.button, { color: theme.colors.error, marginLeft: 8 }]}>
+                        Delete Product
+                      </Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              )}
+
               <TouchableOpacity
                 style={[styles.saveButton, { backgroundColor: theme.colors.primary }]}
                 onPress={handleSave}
-                disabled={saving}
+                disabled={saving || deleting}
               >
                 {saving ? (
                   <ActivityIndicator color={theme.colors.onPrimary} />
@@ -384,11 +487,52 @@ export default function InventoryScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Delete Confirmation Modal */}
+      <Modal visible={deleteModalVisible} animationType="fade" transparent>
+        <View style={styles.confirmOverlay}>
+          <View style={[styles.confirmContainer, { backgroundColor: theme.colors.surface }]}>
+            <View style={[styles.warningIconContainer, { backgroundColor: theme.colors.errorContainer }]}>
+              <MaterialIcons name="delete-forever" size={32} color={theme.colors.error} />
+            </View>
+            
+            <Text style={[theme.typography.h2, { color: theme.colors.onSurface, textAlign: 'center', marginBottom: 12 }]}>
+              Delete Product?
+            </Text>
+            
+            <Text style={[theme.typography.bodyLarge, { color: theme.colors.onSurfaceVariant, textAlign: 'center', marginBottom: 32 }]}>
+              Are you sure you want to remove <Text style={{ fontWeight: '700', color: theme.colors.onSurface }}>"{productToDelete?.name}"</Text>? This action cannot be undone.
+            </Text>
+
+            <View style={styles.confirmFooter}>
+              <TouchableOpacity 
+                style={[styles.cancelButton, { borderColor: theme.colors.outlineVariant }]}
+                onPress={() => setDeleteModalVisible(false)}
+                disabled={deleting}
+              >
+                <Text style={[theme.typography.button, { color: theme.colors.onSurfaceVariant }]}>Cancel</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[styles.confirmDeleteButton, { backgroundColor: theme.colors.error }]}
+                onPress={confirmDelete}
+                disabled={deleting}
+              >
+                {deleting ? (
+                  <ActivityIndicator color={theme.colors.onError} />
+                ) : (
+                  <Text style={[theme.typography.button, { color: theme.colors.onError }]}>Delete</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
 
-function ProductItem({ item, onAdjust, onEdit, onPress }: { item: Product, onAdjust: () => void, onEdit: () => void, onPress: () => void }) {
+function ProductItem({ item, onAdjust, onEdit, onDelete, onPress }: { item: Product, onAdjust: () => void, onEdit: () => void, onDelete: () => void, onPress: () => void }) {
   const isLow = item.quantity <= LOW_STOCK_THRESHOLD;
   const pending = isTemp(item.product_id);
 
@@ -412,8 +556,11 @@ function ProductItem({ item, onAdjust, onEdit, onPress }: { item: Product, onAdj
 
       <View style={styles.cardContent}>
         <View style={[styles.imageContainer, { backgroundColor: theme.colors.surfaceVariant }]}>
-          {/* Placeholder for Product Image */}
-          <MaterialIcons name="inventory" size={32} color={theme.colors.outline} />
+          {item.image_url ? (
+            <Image source={{ uri: item.image_url }} style={styles.productImage} />
+          ) : (
+            <MaterialIcons name="inventory" size={32} color={theme.colors.outline} />
+          )}
         </View>
 
         <View style={styles.productDetails}>
@@ -421,9 +568,14 @@ function ProductItem({ item, onAdjust, onEdit, onPress }: { item: Product, onAdj
             <Text style={[theme.typography.h3, { color: theme.colors.onSurface, flex: 1 }]} numberOfLines={1}>
               {item.name}
             </Text>
-            <TouchableOpacity onPress={onEdit}>
-              <MaterialIcons name="more-vert" size={20} color={theme.colors.outlineVariant} />
-            </TouchableOpacity>
+            <View style={styles.actionButtons}>
+              <TouchableOpacity onPress={onEdit} style={styles.actionIcon}>
+                <MaterialIcons name="edit" size={20} color={theme.colors.primary} />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={onDelete} style={styles.actionIcon}>
+                <MaterialIcons name="delete-outline" size={20} color={theme.colors.error} />
+              </TouchableOpacity>
+            </View>
           </View>
           
           <Text style={[theme.typography.bodyMedium, { color: theme.colors.onSurfaceVariant }]}>
@@ -578,6 +730,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 4,
   },
+  actionButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  actionIcon: {
+    padding: 10,
+  },
   priceStockRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -652,6 +812,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  deleteButtonModal: {
+    height: 56,
+    borderRadius: 12,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
   fab: {
     position: 'absolute',
     bottom: 24,
@@ -671,5 +840,83 @@ const styles = StyleSheet.create({
     ...theme.typography.button,
     color: 'white',
     textDecorationLine: 'underline',
+  },
+  confirmOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  confirmContainer: {
+    width: '100%',
+    borderRadius: 28,
+    padding: 24,
+    alignItems: 'center',
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3,
+    shadowRadius: 20,
+  },
+  warningIconContainer: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  confirmFooter: {
+    flexDirection: 'row',
+    gap: 12,
+    width: '100%',
+  },
+  cancelButton: {
+    flex: 1,
+    height: 52,
+    borderRadius: 12,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  confirmDeleteButton: {
+    flex: 1,
+    height: 52,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imagePicker: {
+    height: 160,
+    borderRadius: 16,
+    marginBottom: 20,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#eee',
+    borderStyle: 'dashed',
+  },
+  imagePlaceholder: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imagePreviewContainer: {
+    flex: 1,
+    position: 'relative',
+  },
+  imagePreview: {
+    width: '100%',
+    height: '100%',
+  },
+  imageOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  productImage: {
+    width: '100%',
+    height: '100%',
   },
 });
