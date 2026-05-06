@@ -5,6 +5,7 @@ import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client
 import { onlineManager } from '@tanstack/react-query';
 import { queryClient, asyncStoragePersister } from '../src/lib/queryClient';
 import { flushOutbox } from '../src/services/syncService';
+import { SyncBadge } from '../src/components/SyncBadge';
 
 export default function RootLayout() {
   const [isReady, setIsReady] = useState(Platform.OS !== 'web');
@@ -43,6 +44,7 @@ export default function RootLayout() {
       client={queryClient}
       persistOptions={{ persister: asyncStoragePersister }}
     >
+      <SyncBadge />
       <Stack>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="(customer)" options={{ headerShown: false }} />

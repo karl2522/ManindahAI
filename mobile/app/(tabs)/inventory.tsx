@@ -22,6 +22,8 @@ import { useStore } from '../../src/hooks/useStore';
 import { ProductService, Product } from '../../src/services/product';
 import { InventoryService, LOW_STOCK_THRESHOLD, InventoryChangeType, InventoryLog } from '../../src/services/inventory';
 import { theme } from '../../src/theme/theme';
+import { useOfflineMutation } from '../../src/hooks/useOfflineMutation';
+import { CreateProductInput, UpdateProductInput } from '../../src/services/product';
 
 const isTemp = (id: string) => id.startsWith('temp_');
 
@@ -157,7 +159,7 @@ export default function InventoryScreen() {
     });
 
     if (!result.canceled) {
-      setEditForm(f => ({ ...f, image_url: result.assets[0].uri }));
+      setEditForm((f: typeof editForm) => ({ ...f, image_url: result.assets[0].uri }));
     }
   };
 
@@ -172,39 +174,70 @@ export default function InventoryScreen() {
     setDeleteModalVisible(true);
   };
 
+  const createProductMutation = useOfflineMutation<Product, Error, CreateProductInput>({
+    mutationFn: (data: CreateProductInput) => ProductService.create(data),
+    getOutboxInput: (data: CreateProductInput) => ({
+      op: 'product_create',
+      store_id: store!.store_id,
+      payload: data,
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['products', store?.store_id] });
+      setModalVisible(false);
+    },
+  });
+
+  const updateProductMutation = useOfflineMutation<Product, Error, { id: string; data: UpdateProductInput }>({
+    mutationFn: ({ id, data }: { id: string; data: UpdateProductInput }) =>
+      ProductService.update(id, data),
+    getOutboxInput: ({ id, data }: { id: string; data: UpdateProductInput }) => ({
+      op: 'product_update',
+      store_id: store!.store_id,
+      product_id: id,
+      payload: data,
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['products', store?.store_id] });
+      setModalVisible(false);
+    },
+  });
+
+  const deleteProductMutation = useOfflineMutation<void, Error, string>({
+    mutationFn: (id: string) => ProductService.delete(id),
+    getOutboxInput: (id: string) => ({
+      op: 'product_delete',
+      store_id: store!.store_id,
+      product_id: id,
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['products', store?.store_id] });
+      setModalVisible(false);
+      setDeleteModalVisible(false);
+    },
+  });
+
+  const adjustStockMutation = useOfflineMutation<void, Error, { id: string; delta: number; type: InventoryChangeType }>({
+    mutationFn: ({ id, delta, type }: { id: string; delta: number; type: InventoryChangeType }) =>
+      InventoryService.adjustStock(id, delta, type),
+    getOutboxInput: ({ id, delta, type }: { id: string; delta: number; type: InventoryChangeType }) => ({
+      op: 'inventory_adjust',
+      store_id: store!.store_id,
+      product_id: id,
+      delta,
+      change_type: type,
+    }),
+  });
+
   const confirmDelete = async () => {
     if (!productToDelete || !store) return;
-
-    setDeleting(true);
-    try {
-      console.log(`[Inventory] Deleting product: ${productToDelete.product_id}`);
-      
-      if (!isTemp(productToDelete.product_id)) {
-        await ProductService.delete(productToDelete.product_id);
-      }
-      
-      // Optimistic cache update
-      queryClient.setQueryData<Product[]>(['products', store.store_id], (old = []) =>
-        old.filter(p => p.product_id !== productToDelete.product_id)
-      );
-      
-      setDeleteModalVisible(false);
-      setModalVisible(false);
-      setSelectedProduct(null);
-      setProductToDelete(null);
-    } catch (e: any) {
-      console.error('[Inventory] Delete failed:', e.message);
-    } finally {
-      setDeleting(false);
-    }
+    deleteProductMutation.mutate(productToDelete.product_id);
   };
 
   const handleSave = async () => {
     if (!store) return;
-    setSaving(true);
     try {
       if (modalMode === 'add') {
-        const newPayload = {
+        const newPayload: CreateProductInput = {
           store_id: store.store_id,
           name: editForm.name.trim(),
           selling_price: parseFloat(editForm.selling_price) || 0,
@@ -215,36 +248,20 @@ export default function InventoryScreen() {
         };
         if (!newPayload.name) throw new Error('Product name is required');
         
-        if (onlineManager.isOnline()) {
-          await ProductService.create(newPayload);
-        } else {
-          // Manual cache update for offline creation (temporary ID)
-          const tempProduct: Product = {
-            ...newPayload,
-            product_id: `temp_${Date.now()}`,
-            category: newPayload.category || null,
-            image_url: newPayload.image_url || null,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          };
-          queryClient.setQueryData<Product[]>(['products', store.store_id], (old = []) => [...old, tempProduct]);
-        }
+        createProductMutation.mutate(newPayload);
       } else if (modalMode === 'adjust' && selectedProduct) {
         const qty = parseInt(quantityInput, 10);
         if (!qty || qty <= 0) throw new Error('Enter a valid quantity');
         const sign = (changeType === 'restock' || changeType === 'adjustment') ? 1 : -1;
         const delta = qty * sign;
 
-        if (onlineManager.isOnline()) {
-          await InventoryService.adjustStock(selectedProduct.product_id, delta, changeType);
-        } else {
-          // Manual cache update for offline
-          queryClient.setQueryData<Product[]>(['products', store.store_id], (old = []) =>
-            old.map(p => p.product_id === selectedProduct.product_id ? { ...p, quantity: Math.max(0, p.quantity + delta) } : p)
-          );
-        }
+        adjustStockMutation.mutate({
+          id: selectedProduct.product_id,
+          delta,
+          type: changeType
+        });
       } else if (modalMode === 'edit' && selectedProduct) {
-        const updatePayload = {
+        const updatePayload: UpdateProductInput = {
           name: editForm.name.trim(),
           selling_price: parseFloat(editForm.selling_price) || 0,
           original_price: parseFloat(editForm.original_price) || 0,
@@ -252,21 +269,14 @@ export default function InventoryScreen() {
           image_url: editForm.image_url || undefined,
         };
 
-        if (onlineManager.isOnline()) {
-          await ProductService.update(selectedProduct.product_id, updatePayload);
-        } else {
-          queryClient.setQueryData<Product[]>(['products', store.store_id], (old = []) =>
-            old.map(p => p.product_id === selectedProduct.product_id ? { ...p, ...updatePayload, category: updatePayload.category || null, image_url: updatePayload.image_url || null } : p)
-          );
-        }
+        updateProductMutation.mutate({
+          id: selectedProduct.product_id,
+          data: updatePayload
+        });
       }
-      
-      queryClient.invalidateQueries({ queryKey: ['products', store.store_id] });
-      setModalVisible(false);
     } catch (e: any) {
-      console.error('[Inventory] Save failed:', e.message);
-    } finally {
-      setSaving(false);
+      console.error('[Inventory] Input error:', e.message);
+      Alert.alert('Error', e.message);
     }
   };
 
@@ -482,7 +492,7 @@ export default function InventoryScreen() {
                     style={[styles.modalInput, theme.typography.bodyLarge, { borderColor: theme.colors.outlineVariant }]}
                     placeholder="e.g. Coca-Cola 1.5L"
                     value={editForm.name}
-                    onChangeText={(v) => setEditForm(f => ({ ...f, name: v }))}
+                    onChangeText={(v: string) => setEditForm((f: typeof editForm) => ({ ...f, name: v }))}
                   />
 
                   <Text style={[theme.typography.bodyLarge, { color: theme.colors.onSurface, fontWeight: '500', marginBottom: 8, marginTop: 20 }]}>Selling Price (₱)</Text>
@@ -490,7 +500,7 @@ export default function InventoryScreen() {
                     style={[styles.modalInput, theme.typography.bodyLarge, { borderColor: theme.colors.outlineVariant }]}
                     placeholder="0.00"
                     value={editForm.selling_price}
-                    onChangeText={(v) => setEditForm(f => ({ ...f, selling_price: v }))}
+                    onChangeText={(v: string) => setEditForm((f: typeof editForm) => ({ ...f, selling_price: v }))}
                     keyboardType="decimal-pad"
                   />
 
@@ -499,7 +509,7 @@ export default function InventoryScreen() {
                     style={[styles.modalInput, theme.typography.bodyLarge, { borderColor: theme.colors.outlineVariant }]}
                     placeholder="0.00"
                     value={editForm.original_price}
-                    onChangeText={(v) => setEditForm(f => ({ ...f, original_price: v }))}
+                    onChangeText={(v: string) => setEditForm((f: typeof editForm) => ({ ...f, original_price: v }))}
                     keyboardType="decimal-pad"
                   />
 
@@ -508,7 +518,7 @@ export default function InventoryScreen() {
                     style={[styles.modalInput, theme.typography.bodyLarge, { borderColor: theme.colors.outlineVariant }]}
                     placeholder="e.g. Beverages"
                     value={editForm.category}
-                    onChangeText={(v) => setEditForm(f => ({ ...f, category: v }))}
+                    onChangeText={(v: string) => setEditForm((f: typeof editForm) => ({ ...f, category: v }))}
                   />
 
                   {modalMode === 'add' && (
@@ -518,7 +528,7 @@ export default function InventoryScreen() {
                         style={[styles.modalInput, theme.typography.bodyLarge, { borderColor: theme.colors.outlineVariant }]}
                         placeholder="0"
                         value={editForm.quantity}
-                        onChangeText={(v) => setEditForm(f => ({ ...f, quantity: v }))}
+                        onChangeText={(v: string) => setEditForm((f: typeof editForm) => ({ ...f, quantity: v }))}
                         keyboardType="number-pad"
                       />
                     </>
@@ -532,9 +542,9 @@ export default function InventoryScreen() {
                 <TouchableOpacity
                   style={[styles.deleteButtonModal, { borderColor: theme.colors.error }]}
                   onPress={() => handleDelete()}
-                  disabled={deleting}
+                  disabled={deleteProductMutation.isPending}
                 >
-                  {deleting ? (
+                  {deleteProductMutation.isPending ? (
                     <ActivityIndicator color={theme.colors.error} />
                   ) : (
                     <>
@@ -550,9 +560,9 @@ export default function InventoryScreen() {
               <TouchableOpacity
                 style={[styles.saveButton, { backgroundColor: theme.colors.primary }]}
                 onPress={handleSave}
-                disabled={saving || deleting}
+                disabled={createProductMutation.isPending || updateProductMutation.isPending || adjustStockMutation.isPending || deleteProductMutation.isPending}
               >
-                {saving ? (
+                {(createProductMutation.isPending || updateProductMutation.isPending || adjustStockMutation.isPending) ? (
                   <ActivityIndicator color={theme.colors.onPrimary} />
                 ) : (
                   <Text style={[theme.typography.button, { color: theme.colors.onPrimary }]}>
@@ -585,7 +595,7 @@ export default function InventoryScreen() {
               <TouchableOpacity 
                 style={[styles.cancelButton, { borderColor: theme.colors.outlineVariant }]}
                 onPress={() => setDeleteModalVisible(false)}
-                disabled={deleting}
+                disabled={deleteProductMutation.isPending}
               >
                 <Text style={[theme.typography.button, { color: theme.colors.onSurfaceVariant }]}>Cancel</Text>
               </TouchableOpacity>
@@ -593,12 +603,17 @@ export default function InventoryScreen() {
               <TouchableOpacity 
                 style={[styles.confirmDeleteButton, { backgroundColor: theme.colors.error }]}
                 onPress={confirmDelete}
-                disabled={deleting}
+                disabled={deleteProductMutation.isPending}
               >
-                {deleting ? (
+                {deleteProductMutation.isPending ? (
                   <ActivityIndicator color={theme.colors.onError} />
                 ) : (
-                  <Text style={[theme.typography.button, { color: theme.colors.onError }]}>Delete</Text>
+                  <Text style={[theme.typography.button, { color: theme.colors.onError }]}>
+                    {productToDelete?.product_id?.startsWith('temp_') && (
+                      <MaterialIcons name="cloud-upload" size={14} color={theme.colors.onError} />
+                    )}
+                    {productToDelete?.product_id?.startsWith('temp_') ? ' Syncing...' : 'Delete'}
+                  </Text>
                 )}
               </TouchableOpacity>
             </View>
@@ -746,7 +761,9 @@ function ProductItem({ item, onAdjust, onEdit, onDelete, onPress }: { item: Prod
             </View>
             <View style={styles.tableNameBlock}>
               <Text style={[theme.typography.labelMedium, { color: theme.colors.onSurface, fontWeight: '600' }]} numberOfLines={2}>
-                {item.name}
+                {item.name} {isTemp(item.product_id) && (
+                  <MaterialIcons name="cloud-upload" size={14} color={theme.colors.outline} />
+                )}
               </Text>
               <Text style={[theme.typography.labelSmall, { color: theme.colors.onSurfaceVariant }]}>
                 ₱ {item.original_price.toFixed(2)}
@@ -873,7 +890,9 @@ function ProductGridItem({ item, onAdjust, onEdit, onDelete, onPress }: { item: 
 
       <View style={styles.gridInfo}>
         <Text style={[theme.typography.labelMedium, { color: theme.colors.onSurface, fontWeight: '600' }]} numberOfLines={2}>
-          {item.name}
+          {item.name} {isTemp(item.product_id) && (
+            <MaterialIcons name="cloud-upload" size={14} color={theme.colors.outline} />
+          )}
         </Text>
         <View style={styles.gridBottom}>
           <Text style={[theme.typography.labelSmall, { color: isLow ? theme.colors.error : theme.colors.tertiary, fontWeight: '600' }]}>

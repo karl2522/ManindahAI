@@ -33,6 +33,11 @@ export type SaleItemInput = {
 export type CreateSaleInput = {
   store_id: string;
   items: SaleItemInput[];
+  /**
+   * Optional map of product_id -> original_price.
+   * If provided, avoids a network call to fetch prices for profit calculation.
+   */
+  originalPrices?: Record<string, number>;
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────
@@ -79,7 +84,7 @@ export const SalesService = {
     }
 
     const productIds = input.items.map((i) => i.product_id);
-    const originalPrices = await fetchOriginalPrices(productIds);
+    const originalPrices = input.originalPrices ?? (await fetchOriginalPrices(productIds));
 
     // Compute totals
     let totalAmount = 0;

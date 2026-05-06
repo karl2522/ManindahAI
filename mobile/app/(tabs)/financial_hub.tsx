@@ -10,7 +10,8 @@ import { useFocusEffect } from '@react-navigation/native';
 import { theme } from '../../src/theme/theme';
 import { useStore } from '../../src/hooks/useStore';
 import { SalesService, Sale } from '../../src/services/sales';
-import { ExpenseService, Expense } from '../../src/services/expense';
+import { ExpenseService, Expense, CreateExpenseInput, UpdateExpenseInput } from '../../src/services/expense';
+import { useOfflineMutation } from '../../src/hooks/useOfflineMutation';
 
 function todayBounds() {
   const d = new Date();
@@ -102,26 +103,71 @@ export default function FinancialHubScreen() {
   const { start: ts, end: te } = todayBounds();
   const { start: ms, end: me } = monthBounds();
 
-  const todaySales = sales.filter(s => s.date >= ts && s.date <= te);
-  const todayRevenue = todaySales.reduce((sum, s) => sum + s.total_amount, 0);
-  const todayProfit = todaySales.reduce((sum, s) => sum + s.total_profit, 0);
+  const todaySales = sales.filter((s: Sale) => s.date >= ts && s.date <= te);
+  const todayRevenue = todaySales.reduce((sum: number, s: Sale) => sum + s.total_amount, 0);
+  const todayProfit = todaySales.reduce((sum: number, s: Sale) => sum + s.total_profit, 0);
 
-  const monthExpenses = expenses.filter(e => e.date >= ms && e.date <= me);
-  const monthlyTotal = monthExpenses.reduce((sum, e) => sum + e.amount, 0);
+  const monthExpenses = expenses.filter((e: Expense) => e.date >= ms && e.date <= me);
+  const monthlyTotal = monthExpenses.reduce((sum: number, e: Expense) => sum + e.amount, 0);
 
   const { start: ps, end: pe } = periodBounds(reportPeriod);
-  const periodSales = sales.filter(s => s.date.substring(0, 10) >= ps && s.date.substring(0, 10) <= pe);
-  const periodRevenue = periodSales.reduce((sum, s) => sum + s.total_amount, 0);
-  const periodProfit = periodSales.reduce((sum, s) => sum + s.total_profit, 0);
+  const periodSales = sales.filter((s: Sale) => s.date.substring(0, 10) >= ps && s.date.substring(0, 10) <= pe);
+  const periodRevenue = periodSales.reduce((sum: number, s: Sale) => sum + s.total_amount, 0);
+  const periodProfit = periodSales.reduce((sum: number, s: Sale) => sum + s.total_profit, 0);
   const periodSalesCount = periodSales.length;
-  const periodExpTotal = expenses.filter(e => e.date.substring(0, 10) >= ps && e.date.substring(0, 10) <= pe).reduce((sum, e) => sum + e.amount, 0);
+  const periodExpTotal = expenses.filter((e: Expense) => e.date.substring(0, 10) >= ps && e.date.substring(0, 10) <= pe).reduce((sum: number, e: Expense) => sum + e.amount, 0);
   const periodNet = periodProfit - periodExpTotal;
 
   const [expModal, setExpModal] = useState(false);
   const [editExp, setEditExp] = useState<Expense | null>(null);
   const [expName, setExpName] = useState('');
   const [expAmount, setExpAmount] = useState('');
-  const [saving, setSaving] = useState(false);
+  
+  const createExpenseMutation = useOfflineMutation<Expense, Error, CreateExpenseInput>({
+    mutationFn: (data: CreateExpenseInput) => ExpenseService.create(data),
+    getOutboxInput: (data: CreateExpenseInput) => ({
+      op: 'expense_create',
+      store_id: data.store_id,
+      payload: data,
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['expenses'] });
+      queryClient.invalidateQueries({ queryKey: ['summary'] });
+      setExpModal(false);
+    },
+    onError: (e: Error) => Alert.alert('Error', e.message),
+  });
+
+  const updateExpenseMutation = useOfflineMutation<Expense, Error, { id: string; data: UpdateExpenseInput }>({
+    mutationFn: ({ id, data }: { id: string; data: UpdateExpenseInput }) =>
+      ExpenseService.update(id, data),
+    getOutboxInput: ({ id, data }: { id: string; data: UpdateExpenseInput }) => ({
+      op: 'expense_update',
+      store_id: store!.store_id,
+      expense_id: id,
+      payload: data,
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['expenses'] });
+      queryClient.invalidateQueries({ queryKey: ['summary'] });
+      setExpModal(false);
+    },
+    onError: (e: Error) => Alert.alert('Error', e.message),
+  });
+
+  const deleteExpenseMutation = useOfflineMutation<void, Error, string>({
+    mutationFn: (id: string) => ExpenseService.delete(id),
+    getOutboxInput: (id: string) => ({
+      op: 'expense_delete',
+      store_id: store!.store_id,
+      expense_id: id,
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['expenses'] });
+      queryClient.invalidateQueries({ queryKey: ['summary'] });
+    },
+    onError: (e: Error) => Alert.alert('Error', e.message),
+  });
 
   const openAdd = () => { setEditExp(null); setExpName(''); setExpAmount(''); setExpModal(true); };
   const openEdit = (e: Expense) => { setEditExp(e); setExpName(e.name); setExpAmount(String(e.amount)); setExpModal(true); };
@@ -131,28 +177,27 @@ export default function FinancialHubScreen() {
     const amount = parseFloat(expAmount);
     if (!expName.trim()) return Alert.alert('Error', 'Name is required');
     if (!amount || amount <= 0) return Alert.alert('Error', 'Enter a valid amount');
-    setSaving(true);
-    try {
-      if (editExp) {
-        await ExpenseService.update(editExp.expense_id, { name: expName.trim(), amount });
-      } else {
-        await ExpenseService.create({ store_id: store.store_id, name: expName.trim(), amount });
-      }
-      queryClient.invalidateQueries({ queryKey: ['expenses', store.store_id] });
-      setExpModal(false);
-    } catch (e: any) { Alert.alert('Error', e.message); }
-    finally { setSaving(false); }
+    
+    if (editExp) {
+      updateExpenseMutation.mutate({ 
+        id: editExp.expense_id, 
+        input: { name: expName.trim(), amount } 
+      });
+    } else {
+      createExpenseMutation.mutate({ 
+        store_id: store.store_id, 
+        name: expName.trim(), 
+        amount 
+      });
+    }
   };
+
+  const saving = createExpenseMutation.isPending || updateExpenseMutation.isPending;
 
   const deleteExpense = (exp: Expense) => {
     Alert.alert('Delete Expense', `Delete "${exp.name}"?`, [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: async () => {
-        try {
-          await ExpenseService.delete(exp.expense_id);
-          queryClient.invalidateQueries({ queryKey: ['expenses', store!.store_id] });
-        } catch (e: any) { Alert.alert('Error', e.message); }
-      }},
+      { text: 'Delete', style: 'destructive', onPress: () => deleteExpenseMutation.mutate(exp.expense_id) }
     ]);
   };
 
@@ -198,7 +243,7 @@ export default function FinancialHubScreen() {
 
           {/* Period Report */}
           <View style={styles.periodSelector}>
-            {(['this_week', 'last_week', 'this_month', 'last_month'] as const).map(p => (
+            {(['this_week', 'last_week', 'this_month', 'last_month'] as const).map((p: ReportPeriod) => (
               <TouchableOpacity
                 key={p}
                 style={[styles.periodPill, reportPeriod === p && { backgroundColor: theme.colors.primaryContainer }]}
@@ -262,7 +307,7 @@ export default function FinancialHubScreen() {
               </Text>
             </View>
           ) : (
-            sales.slice(0, 5).map(sale => (
+            sales.slice(0, 5).map((sale: Sale) => (
               <TouchableOpacity
                 key={sale.sale_id}
                 style={[styles.row, { backgroundColor: theme.colors.surface, borderColor: theme.colors.surfaceContainerLow }]}
@@ -273,7 +318,11 @@ export default function FinancialHubScreen() {
                   <MaterialIcons name="storefront" size={22} color={theme.colors.tertiaryContainer} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={[theme.typography.button, { color: theme.colors.onSurface }]}>End-of-Day Sale</Text>
+                  <Text style={[theme.typography.button, { color: theme.colors.onSurface }]}>
+                    End-of-Day Sale {sale.sale_id.startsWith('temp_') && (
+                      <MaterialIcons name="cloud-upload" size={14} color={theme.colors.outline} />
+                    )}
+                  </Text>
                   <Text style={[theme.typography.labelMedium, { color: theme.colors.outline }]}>{fmtDate(sale.date)}</Text>
                 </View>
                 <View style={{ alignItems: 'flex-end' }}>
@@ -306,13 +355,17 @@ export default function FinancialHubScreen() {
               </Text>
             </View>
           ) : (
-            expenses.map(exp => (
+            expenses.map((exp: Expense) => (
               <View key={exp.expense_id} style={[styles.row, { backgroundColor: theme.colors.surface, borderColor: theme.colors.surfaceContainerLow }]}>
                 <View style={[styles.rowIcon, { backgroundColor: `${theme.colors.errorContainer}99` }]}>
                   <MaterialIcons name="receipt" size={22} color={theme.colors.onErrorContainer} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={[theme.typography.button, { color: theme.colors.onSurface }]}>{exp.name}</Text>
+                  <Text style={[theme.typography.button, { color: theme.colors.onSurface }]}>
+                    {exp.name} {exp.expense_id.startsWith('temp_') && (
+                      <MaterialIcons name="cloud-upload" size={14} color={theme.colors.outline} />
+                    )}
+                  </Text>
                   <Text style={[theme.typography.labelMedium, { color: theme.colors.outline }]}>{fmtDate(exp.date)}</Text>
                 </View>
                 <Text style={[theme.typography.button, { color: theme.colors.error, marginRight: 12 }]}>-₱{exp.amount.toFixed(2)}</Text>

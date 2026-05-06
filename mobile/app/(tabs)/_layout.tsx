@@ -5,6 +5,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { AuthService } from '../../src/services/auth';
 import { theme } from '../../src/theme/theme';
 import { useStore } from '../../src/hooks/useStore';
+import { SyncBadge } from '../../src/components/SyncBadge';
 import { useEffect } from 'react';
 
 export default function TabsLayout() {
@@ -74,6 +75,11 @@ export default function TabsLayout() {
           fontWeight: '700',
           fontSize: 20,
         },
+        headerLeft: () => (
+          <View style={{ marginLeft: 16 }}>
+            <SyncBadge />
+          </View>
+        ),
         headerRight: () => (
           <TouchableOpacity onPress={handleLogout} style={{ marginRight: 16 }}>
             <MaterialIcons name="logout" size={22} color={theme.colors.primaryContainer} />
@@ -86,7 +92,7 @@ export default function TabsLayout() {
         options={{
           title: 'Dashboard',
           tabBarLabel: 'Dashboard',
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ color, size }: { color: string; size: number }) => (
             <MaterialIcons name="dashboard" size={size} color={color} />
           ),
         }}
@@ -96,7 +102,7 @@ export default function TabsLayout() {
         options={{
           title: 'Stock List',
           tabBarLabel: 'Stock List',
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ color, size }: { color: string; size: number }) => (
             <MaterialIcons name="inventory-2" size={size} color={color} />
           ),
         }}
@@ -107,7 +113,7 @@ export default function TabsLayout() {
           title: 'Scan',
           tabBarLabel: () => null,
           tabBarStyle: { display: 'none' },
-          tabBarIcon: ({ focused }) => (
+          tabBarIcon: ({ focused }: { focused: boolean }) => (
             <View style={styles.scanButtonContainer}>
               <View style={[
                 styles.scanButton,
@@ -125,7 +131,7 @@ export default function TabsLayout() {
         options={{
           title: 'Financial Hub',
           tabBarLabel: 'Financial Hub',
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ color, size }: { color: string; size: number }) => (
             <MaterialIcons name="payments" size={size} color={color} />
           ),
         }}
@@ -135,7 +141,7 @@ export default function TabsLayout() {
         options={{
           title: 'Insights',
           tabBarLabel: 'Insights',
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ color, size }: { color: string; size: number }) => (
             <MaterialIcons name="insights" size={size} color={color} />
           ),
         }}

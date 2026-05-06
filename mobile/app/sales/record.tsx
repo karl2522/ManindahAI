@@ -9,7 +9,8 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { theme } from '../../src/theme/theme';
 import { useStore } from '../../src/hooks/useStore';
 import { ProductService, Product } from '../../src/services/product';
-import { SalesService, SaleItemInput } from '../../src/services/sales';
+import { SalesService, SaleItemInput, CreateSaleInput } from '../../src/services/sales';
+import { useOfflineMutation } from '../../src/hooks/useOfflineMutation';
 
 export default function RecordSalesScreen() {
   const { store } = useStore();
@@ -24,40 +25,55 @@ export default function RecordSalesScreen() {
 
   const [qtys, setQtys] = useState<Record<string, string>>({});
   const [reviewVisible, setReviewVisible] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
 
-  const setQty = (id: string, val: string) => setQtys(prev => ({ ...prev, [id]: val }));
+  const saleMutation = useOfflineMutation<any, Error, CreateSaleInput, unknown>(
+    (input) => SalesService.create(input),
+    {
+      getOutboxInput: (input) => ({ op: 'sale_create', store_id: input.store_id, payload: input }),
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: ['sales', store?.store_id] });
+        queryClient.invalidateQueries({ queryKey: ['products', store?.store_id] });
+        setReviewVisible(false);
+        Alert.alert(
+          'Sale Recorded!',
+          `Revenue: ₱${totalAmount.toFixed(2)}\nProfit: ₱${totalProfit.toFixed(2)}`,
+          [{ text: 'Done', onPress: () => router.back() }]
+        );
+      },
+      onError: (e) => Alert.alert('Error', e.message),
+    }
+  );
+
+  const submitting = saleMutation.isPending;
+
+  const setQty = (id: string, val: string) => setQtys((prev: Record<string, string>) => ({ ...prev, [id]: val }));
 
   const soldItems = products
-    .map(p => ({ product: p, qty: parseInt(qtys[p.product_id] ?? '0', 10) || 0 }))
-    .filter(i => i.qty > 0);
+    .map((p: Product) => ({ product: p, qty: parseInt(qtys[p.product_id] ?? '0', 10) || 0 }))
+    .filter((i: { product: Product; qty: number }) => i.qty > 0);
 
-  const totalAmount = soldItems.reduce((sum, i) => sum + i.product.selling_price * i.qty, 0);
-  const totalProfit = soldItems.reduce((sum, i) => sum + (i.product.selling_price - i.product.original_price) * i.qty, 0);
+  const totalAmount = soldItems.reduce((sum: number, i: { product: Product; qty: number }) => sum + i.product.selling_price * i.qty, 0);
+  const totalProfit = soldItems.reduce((sum: number, i: { product: Product; qty: number }) => sum + (i.product.selling_price - i.product.original_price) * i.qty, 0);
 
   const handleConfirm = async () => {
     if (!store) return;
-    setSubmitting(true);
-    try {
-      const items: SaleItemInput[] = soldItems.map(i => ({
-        product_id: i.product.product_id,
-        quantity: i.qty,
-        price_at_sale: i.product.selling_price,
-      }));
-      await SalesService.create({ store_id: store.store_id, items });
-      queryClient.invalidateQueries({ queryKey: ['sales', store.store_id] });
-      queryClient.invalidateQueries({ queryKey: ['products', store.store_id] });
-      setReviewVisible(false);
-      Alert.alert(
-        'Sale Recorded!',
-        `Revenue: ₱${totalAmount.toFixed(2)}\nProfit: ₱${totalProfit.toFixed(2)}`,
-        [{ text: 'Done', onPress: () => router.back() }]
-      );
-    } catch (e: any) {
-      Alert.alert('Error', e.message);
-    } finally {
-      setSubmitting(false);
-    }
+    
+    const items: SaleItemInput[] = soldItems.map((i: { product: Product; qty: number }) => ({
+      product_id: i.product.product_id,
+      quantity: i.qty,
+      price_at_sale: i.product.selling_price,
+    }));
+
+    const originalPrices: Record<string, number> = {};
+    soldItems.forEach((i: { product: Product; qty: number }) => {
+      originalPrices[i.product.product_id] = i.product.original_price;
+    });
+
+    saleMutation.mutate({ 
+      store_id: store.store_id, 
+      items,
+      originalPrices 
+    });
   };
 
   if (isLoading) {
@@ -81,7 +97,7 @@ export default function RecordSalesScreen() {
 
       <FlatList
         data={products}
-        keyExtractor={p => p.product_id}
+        keyExtractor={(p: Product) => p.product_id}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
         ListEmptyComponent={
@@ -91,7 +107,7 @@ export default function RecordSalesScreen() {
             </Text>
           </View>
         }
-        renderItem={({ item }) => {
+        renderItem={({ item }: { item: Product }) => {
           const qty = qtys[item.product_id] ?? '';
           const hasQty = parseInt(qty, 10) > 0;
           return (
@@ -121,7 +137,7 @@ export default function RecordSalesScreen() {
                 <TextInput
                   style={[styles.qtyInput, { borderColor: theme.colors.outlineVariant }]}
                   value={qty}
-                  onChangeText={v => setQty(item.product_id, v.replace(/[^0-9]/g, ''))}
+                  onChangeText={(v: string) => setQty(item.product_id, v.replace(/[^0-9]/g, ''))}
                   keyboardType="number-pad"
                   placeholder="0"
                   placeholderTextColor={theme.colors.outline}
@@ -178,7 +194,7 @@ export default function RecordSalesScreen() {
             </View>
 
             <ScrollView style={{ maxHeight: 300 }} showsVerticalScrollIndicator={false}>
-              {soldItems.map(({ product, qty }) => (
+              {soldItems.map(({ product, qty }: { product: Product; qty: number }) => (
                 <View key={product.product_id} style={[styles.reviewItem, { borderBottomColor: theme.colors.surfaceContainerLow }]}>
                   <Text style={[theme.typography.bodyMedium, { color: theme.colors.onSurface, flex: 1 }]} numberOfLines={1}>
                     {product.name}
