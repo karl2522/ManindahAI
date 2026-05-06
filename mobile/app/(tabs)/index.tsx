@@ -1,11 +1,30 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Alert, ActivityIndicator } from 'react-native';
+import { useCallback } from 'react';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Stack, useRouter } from 'expo-router';
+import { useQuery } from '@tanstack/react-query';
+import { useFocusEffect } from '@react-navigation/native';
 import { theme } from '../../src/theme/theme';
 import { AuthService } from '../../src/services/auth';
+import { useStore } from '../../src/hooks/useStore';
+import { InventoryService } from '../../src/services/inventory';
+import { Product } from '../../src/services/product';
 
 export default function TabsIndex() {
   const router = useRouter();
+  const { store } = useStore();
+
+  const { data: lowStockProducts = [], isLoading: loadingLowStock, refetch } = useQuery({
+    queryKey: ['low_stock', store?.store_id],
+    queryFn: () => InventoryService.getLowStockProducts(store!.store_id),
+    enabled: !!store,
+  });
+
+  useFocusEffect(
+    useCallback(() => {
+      if (store) refetch();
+    }, [store, refetch])
+  );
 
   return (
     <ScrollView 
@@ -20,7 +39,7 @@ export default function TabsIndex() {
                 <MaterialIcons name="storefront" size={20} color={theme.colors.primaryContainer} />
               </View>
               <View>
-                <Text style={styles.headerTitleText}>Manindah Store</Text>
+                <Text style={styles.headerTitleText}>{store?.store_name ?? 'My Store'}</Text>
                 <View style={styles.statusContainer}>
                   <View style={styles.statusDot} />
                   <Text style={styles.statusText}>Naka-Offline</Text>
@@ -81,27 +100,44 @@ export default function TabsIndex() {
       </View>
 
       {/* Low Stock Alert Section */}
-      <View style={styles.alertSection}>
-        <View style={styles.alertHeader}>
-          <MaterialIcons name="warning" size={20} color={theme.colors.error} />
-          <Text style={styles.alertTitle}>Kulang sa Stocks</Text>
+      {loadingLowStock ? (
+        <ActivityIndicator size="small" color={theme.colors.error} style={{ marginVertical: 8 }} />
+      ) : lowStockProducts.length === 0 ? (
+        <View style={[styles.alertSection, { borderColor: theme.colors.outlineVariant, backgroundColor: theme.colors.surfaceContainerLow }]}>
+          <View style={styles.alertHeader}>
+            <MaterialIcons name="check-circle" size={20} color={theme.colors.tertiaryContainer} />
+            <Text style={[styles.alertTitle, { color: theme.colors.tertiaryContainer }]}>All stock levels are healthy!</Text>
+          </View>
         </View>
-        
-        <View style={styles.alertList}>
-          <LowStockItem 
-            name="Lucky Me Beef Noodles" 
-            stock="Only 5 left" 
-            imageUrl="https://lh3.googleusercontent.com/aida-public/AB6AXuBEwWFVajpT8dN2HALY9xNTDCr667cuDe5SKfqsFcsxvlyZAyCVXnYdnM-FuEQRUuuc4EhkWDkWDdisJovyZ88RuBlra7o30zaYocjj6GTIQwhNq95jGB3Zikryy9_WkGRcWEQK4GTjrVwONbNdNgychji48QP_AuJKMT9_cz1wJTaRXVWxMn3dW1shNI7xcRQtYQkjttjM4BvpzRZsEVdFAkOncioVjNW5TotU2udDI3vMkpHRfxtqJ_HFC74W4HDE0Yy8lbqQDco"
-            onRestock={() => router.push('/(tabs)/inventory')}
-          />
-          <LowStockItem 
-            name="Coke Kasalo 800ml" 
-            stock="Only 2 left" 
-            imageUrl="https://lh3.googleusercontent.com/aida-public/AB6AXuAF7cYvn5HSOLMFLCZEbnQmJsMFkgZk1dyE7UaoZGC_wE61XRG5k7T3yrvWEaYGpIfBDyAGDTTG9QeEQpg28BlPdUvO0NsYcqo1_QwlazGdHUfh18FqDpP0crVSrd473HRTMgiXLzVRWYviymGlHwRzvWeuzNDMlIluTj0qwDuP-U0EypSnFkwLFgB1IwUu83X99HXGtvaw9Akt-34MBQv3hVbMvl9LKQcqXXXj-NqK8d2SSBmt7RhFc-iFP2aVRU6k-rvu-_ccgUw"
-            onRestock={() => router.push('/(tabs)/inventory')}
-          />
+      ) : (
+        <View style={styles.alertSection}>
+          <View style={styles.alertHeader}>
+            <MaterialIcons name="warning" size={20} color={theme.colors.error} />
+            <Text style={styles.alertTitle}>Kulang sa Stocks</Text>
+            <View style={styles.alertCountBadge}>
+              <Text style={styles.alertCountText}>{lowStockProducts.length}</Text>
+            </View>
+          </View>
+
+          <View style={styles.alertList}>
+            {lowStockProducts.slice(0, 5).map(item => (
+              <LowStockItem
+                key={item.product_id}
+                item={item}
+                onRestock={() => router.push('/(tabs)/inventory')}
+              />
+            ))}
+            {lowStockProducts.length > 5 && (
+              <TouchableOpacity
+                style={styles.viewAllButton}
+                onPress={() => router.push('/(tabs)/inventory')}
+              >
+                <Text style={styles.viewAllText}>+{lowStockProducts.length - 5} more low-stock items →</Text>
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
-      </View>
+      )}
 
       {/* Temporary Logout Button */}
       <TouchableOpacity 
@@ -132,13 +168,19 @@ function ActionButton({ icon, label, color, iconColor, onPress }: { icon: any, l
   );
 }
 
-function LowStockItem({ name, stock, imageUrl, onRestock }: { name: string, stock: string, imageUrl: string, onRestock?: () => void }) {
+function LowStockItem({ item, onRestock }: { item: Product, onRestock?: () => void }) {
   return (
     <View style={styles.stockItem}>
-      <Image source={{ uri: imageUrl }} style={styles.stockImage} />
+      {item.image_url ? (
+        <Image source={{ uri: item.image_url }} style={styles.stockImage} />
+      ) : (
+        <View style={[styles.stockImage, { alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surfaceContainer }]}>
+          <MaterialIcons name="inventory" size={24} color={theme.colors.outline} />
+        </View>
+      )}
       <View style={styles.stockInfo}>
-        <Text style={styles.stockName}>{name}</Text>
-        <Text style={styles.stockCount}>{stock}</Text>
+        <Text style={styles.stockName} numberOfLines={1}>{item.name}</Text>
+        <Text style={styles.stockCount}>Only {item.quantity} left</Text>
       </View>
       <TouchableOpacity style={styles.restockButton} onPress={onRestock}>
         <Text style={styles.restockButtonText}>Restock</Text>
@@ -327,5 +369,26 @@ const styles = StyleSheet.create({
     ...theme.typography.button,
     fontSize: 12,
     color: theme.colors.onPrimary,
+  },
+  alertCountBadge: {
+    backgroundColor: theme.colors.error,
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    marginLeft: 4,
+  },
+  alertCountText: {
+    ...theme.typography.labelSmall,
+    color: theme.colors.onError,
+    fontWeight: '700',
+  },
+  viewAllButton: {
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  viewAllText: {
+    ...theme.typography.labelMedium,
+    color: theme.colors.error,
+    fontWeight: '600',
   },
 });
