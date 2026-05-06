@@ -43,6 +43,12 @@
       "expo-asset",
       "expo-image-picker",
       [
+        "expo-auth-session",
+        {
+          "oauthRedirectScheme": "com.manindahai.app"
+        }
+      ],
+      [
         "expo-camera",
         {
           "cameraPermission": "Allow ManindahAI to access your camera to scan barcodes and receipts.",
