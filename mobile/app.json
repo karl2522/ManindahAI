@@ -1,0 +1,54 @@
+{
+  "expo": {
+    "name": "ManindahAI",
+    "slug": "manindahai",
+    "scheme": "manindahai",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/logo.png",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "image": "./assets/logo.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#ffffff"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "We use your location to center the map and help you pin your store.",
+        "NSPhotoLibraryUsageDescription": "Allow access to upload a photo of your store."
+      }
+    },
+    "android": {
+      "package": "com.manindahai.app",
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION",
+        "READ_MEDIA_IMAGES",
+        "READ_EXTERNAL_STORAGE"
+      ],
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#ffffff"
+      }
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-web-browser",
+      "expo-font",
+      "expo-asset",
+      "expo-image-picker",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow ManindahAI to access your camera to scan barcodes and receipts.",
+          "barcodeScannerEnabled": true
+        }
+      ]
+    ]
+  }
+}
