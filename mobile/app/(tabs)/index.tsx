@@ -4,15 +4,30 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { Stack, useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { useFocusEffect } from '@react-navigation/native';
+import { useNetInfo } from '@react-native-community/netinfo';
 import { theme } from '../../src/theme/theme';
 import { AuthService } from '../../src/services/auth';
 import { useStore } from '../../src/hooks/useStore';
 import { InventoryService } from '../../src/services/inventory';
+import { SalesService } from '../../src/services/sales';
 import { Product } from '../../src/services/product';
 
 export default function TabsIndex() {
   const router = useRouter();
   const { store } = useStore();
+  const netInfo = useNetInfo();
+  const isOnline = netInfo.isConnected === true && netInfo.isInternetReachable !== false;
+
+  const today = new Date().toISOString().split('T')[0];
+
+  const { data: todaySales = [], isLoading: loadingTodaySales } = useQuery({
+    queryKey: ['sales-today', store?.store_id, today],
+    queryFn: () => SalesService.getByDateRange(store!.store_id, today, today),
+    enabled: !!store?.store_id,
+  });
+
+  const todayRevenue = todaySales.reduce((s, sale) => s + sale.total_amount, 0);
+  const todayTransactions = todaySales.length;
 
   const { data: lowStockProducts = [], isLoading: loadingLowStock, refetch } = useQuery({
     queryKey: ['low_stock', store?.store_id],
@@ -41,15 +56,19 @@ export default function TabsIndex() {
               <View>
                 <Text style={styles.headerTitleText}>{store?.store_name ?? 'My Store'}</Text>
                 <View style={styles.statusContainer}>
-                  <View style={styles.statusDot} />
-                  <Text style={styles.statusText}>Naka-Offline</Text>
+                  <View style={[styles.statusDot, { backgroundColor: isOnline ? '#34c759' : theme.colors.error }]} />
+                  <Text style={styles.statusText}>{isOnline ? 'Naka-Online' : 'Naka-Offline'}</Text>
                 </View>
               </View>
             </View>
           ),
           headerRight: () => (
             <TouchableOpacity style={styles.headerIconButton}>
-              <MaterialIcons name="cloud-off" size={24} color={theme.colors.primaryContainer} />
+              <MaterialIcons
+                name={isOnline ? 'cloud-done' : 'cloud-off'}
+                size={24}
+                color={isOnline ? theme.colors.tertiaryContainer : theme.colors.primaryContainer}
+              />
             </TouchableOpacity>
           ),
         }}
@@ -62,8 +81,14 @@ export default function TabsIndex() {
           <MaterialIcons name="trending-up" size={24} color={theme.colors.tertiaryContainer} />
         </View>
         <View>
-          <Text style={styles.salesAmount}>₱ 4,250.00</Text>
-          <Text style={styles.salesSubtitle}>24 Transactions</Text>
+          <Text style={styles.salesAmount}>
+            {loadingTodaySales
+              ? '--'
+              : `₱ ${todayRevenue.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+          </Text>
+          <Text style={styles.salesSubtitle}>
+            {loadingTodaySales ? '' : `${todayTransactions} Transaction${todayTransactions !== 1 ? 's' : ''}`}
+          </Text>
         </View>
       </View>
 
