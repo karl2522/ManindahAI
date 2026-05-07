@@ -1,13 +1,41 @@
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Platform, Image } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
+import { useQuery } from '@tanstack/react-query';
 import { useStore } from '../../src/hooks/useStore';
 import { AuthService } from '../../src/services/auth';
+import { ProductService } from '../../src/services/product';
+import { InventoryService } from '../../src/services/inventory';
+import { SalesService } from '../../src/services/sales';
 import { theme } from '../../src/theme/theme';
 
 export default function OwnerProfileScreen() {
   const router = useRouter();
   const { profile, store } = useStore();
+
+  const today = new Date().toISOString().split('T')[0];
+
+  const { data: products, isLoading: loadingProducts } = useQuery({
+    queryKey: ['products', store?.store_id],
+    queryFn: () => ProductService.getByStoreId(store!.store_id),
+    enabled: !!store?.store_id,
+  });
+
+  const { data: lowStockProducts, isLoading: loadingLowStock } = useQuery({
+    queryKey: ['low-stock', store?.store_id],
+    queryFn: () => InventoryService.getLowStockProducts(store!.store_id),
+    enabled: !!store?.store_id,
+  });
+
+  const { data: todaySales, isLoading: loadingSales } = useQuery({
+    queryKey: ['sales-today', store?.store_id, today],
+    queryFn: () => SalesService.getByDateRange(store!.store_id, today, today),
+    enabled: !!store?.store_id,
+  });
+
+  const itemCount = products?.length ?? 0;
+  const lowStockCount = lowStockProducts?.length ?? 0;
+  const todayRevenue = todaySales?.reduce((sum, s) => sum + s.total_amount, 0) ?? 0;
 
   const doLogout = async () => {
     try {
@@ -72,15 +100,21 @@ export default function OwnerProfileScreen() {
         {/* Business Stats Grid */}
         <View style={styles.statsGrid}>
           <View style={styles.statCard}>
-            <Text style={[styles.statValue, { color: theme.colors.secondary }]}>₱1,240</Text>
+            <Text style={[styles.statValue, { color: theme.colors.secondary }]}>
+              {loadingSales ? '--' : `₱${todayRevenue.toLocaleString('en-PH', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`}
+            </Text>
             <Text style={styles.statLabel}>TODAY</Text>
           </View>
           <View style={styles.statCard}>
-            <Text style={[styles.statValue, { color: theme.colors.primary }]}>342</Text>
+            <Text style={[styles.statValue, { color: theme.colors.primary }]}>
+              {loadingProducts ? '--' : itemCount}
+            </Text>
             <Text style={styles.statLabel}>ITEMS</Text>
           </View>
           <View style={styles.statCard}>
-            <Text style={[styles.statValue, { color: theme.colors.error }]}>12</Text>
+            <Text style={[styles.statValue, { color: theme.colors.error }]}>
+              {loadingLowStock ? '--' : lowStockCount}
+            </Text>
             <Text style={[styles.statLabel, { color: theme.colors.error }]}>LOW STOCK</Text>
           </View>
         </View>
