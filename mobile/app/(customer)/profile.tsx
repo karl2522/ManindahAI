@@ -1,32 +1,27 @@
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Alert, Platform } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, Modal, Platform } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useStore } from '../../src/hooks/useStore';
 import { AuthService } from '../../src/services/auth';
 import { theme } from '../../src/theme/theme';
+import { useState } from 'react';
 
 export default function ProfileScreen() {
   const router = useRouter();
-  const { profile } = useStore();
+  const { profile, roles } = useStore();
+  const [showLogoutModal, setShowLogoutModal] = useState(false);
 
   const doLogout = async () => {
     try {
       await AuthService.logout();
       router.replace('/(auth)/login');
     } catch (e: any) {
-      Alert.alert('Logout Error', e.message);
+      console.error('Logout error:', e.message);
     }
   };
 
   const handleLogout = () => {
-    if (Platform.OS === 'web') {
-      if (window.confirm('Are you sure you want to log out?')) doLogout();
-      return;
-    }
-    Alert.alert('Logout', 'Are you sure you want to log out?', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Logout', style: 'destructive', onPress: doLogout },
-    ]);
+    setShowLogoutModal(true);
   };
 
   return (
@@ -38,9 +33,17 @@ export default function ProfileScreen() {
             <MaterialIcons name="person" size={32} color={theme.colors.primaryContainer} />
           </View>
           <View style={styles.profileInfo}>
-            <Text style={styles.profileName}>{profile?.name ?? 'Community Member'}</Text>
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>Community Member</Text>
+            <Text style={styles.profileName}>{profile?.name ?? 'User'}</Text>
+            <View style={[
+              styles.badge, 
+              roles.includes('owner') && { backgroundColor: theme.colors.primaryContainer }
+            ]}>
+              <Text style={[
+                styles.badgeText,
+                roles.includes('owner') && { color: theme.colors.onPrimary }
+              ]}>
+                {roles.includes('owner') ? 'Store Owner' : 'Community Member'}
+              </Text>
             </View>
           </View>
         </View>
@@ -49,20 +52,37 @@ export default function ProfileScreen() {
           <MenuItem label="My Reviews" icon="star" onPress={() => router.push('/(customer)/my-reviews')} />
         </View>
 
-        <View style={styles.ctaCard}>
-          <View style={styles.ctaTextBlock}>
-            <Text style={styles.ctaTitle}>Own a Sari-Sari Store?</Text>
-            <Text style={styles.ctaBody}>
-              Digitize your inventory, track sales, and grow your business with ManindahAI.
-            </Text>
+        {roles.includes('owner') ? (
+          <View style={styles.ctaCard}>
+            <View style={styles.ctaTextBlock}>
+              <Text style={styles.ctaTitle}>Your Store is Active</Text>
+              <Text style={styles.ctaBody}>
+                Manage your inventory and track your sales performance.
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={styles.ctaButton}
+              onPress={() => router.push('/(tabs)')}
+            >
+              <Text style={styles.ctaButtonText}>Go to Shop Dashboard</Text>
+            </TouchableOpacity>
           </View>
-          <TouchableOpacity
-            style={styles.ctaButton}
-            onPress={() => router.push('/onboarding/merchant')}
-          >
-            <Text style={styles.ctaButtonText}>Register as Store Owner</Text>
-          </TouchableOpacity>
-        </View>
+        ) : (
+          <View style={styles.ctaCard}>
+            <View style={styles.ctaTextBlock}>
+              <Text style={styles.ctaTitle}>Own a Sari-Sari Store?</Text>
+              <Text style={styles.ctaBody}>
+                Digitize your inventory, track sales, and grow your business with ManindahAI.
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={styles.ctaButton}
+              onPress={() => router.push('/onboarding/merchant')}
+            >
+              <Text style={styles.ctaButtonText}>Register as Store Owner</Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </ScrollView>
 
       <View style={styles.logoutContainer}>
@@ -71,6 +91,43 @@ export default function ProfileScreen() {
           <Text style={styles.logoutText}>Log Out</Text>
         </TouchableOpacity>
       </View>
+
+      <Modal
+        visible={showLogoutModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowLogoutModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <View style={styles.modalIconContainer}>
+                <MaterialIcons name="logout" size={28} color={theme.colors.error} />
+              </View>
+              <Text style={styles.modalTitle}>Confirm Logout</Text>
+              <Text style={styles.modalBody}>Are you sure you want to sign out of your account?</Text>
+            </View>
+
+            <View style={styles.modalFooter}>
+              <TouchableOpacity 
+                style={styles.cancelButton} 
+                onPress={() => setShowLogoutModal(false)}
+              >
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.confirmButton} 
+                onPress={() => {
+                  setShowLogoutModal(false);
+                  doLogout();
+                }}
+              >
+                <Text style={styles.confirmButtonText}>Logout</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -202,5 +259,77 @@ const styles = StyleSheet.create({
     left: 20,
     right: 20,
     bottom: 90,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  modalContent: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: 24,
+    padding: 24,
+    width: '100%',
+    maxWidth: 340,
+    gap: 24,
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceVariant,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.1,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  modalHeader: {
+    alignItems: 'center',
+    gap: 12,
+  },
+  modalIconContainer: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: theme.colors.surfaceContainerLow,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalTitle: {
+    ...theme.typography.h3,
+    color: theme.colors.onSurface,
+  },
+  modalBody: {
+    ...theme.typography.bodyMedium,
+    color: theme.colors.onSurfaceVariant,
+    textAlign: 'center',
+  },
+  modalFooter: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  cancelButton: {
+    flex: 1,
+    height: 48,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: theme.colors.outlineVariant,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cancelButtonText: {
+    ...theme.typography.button,
+    color: theme.colors.onSurfaceVariant,
+  },
+  confirmButton: {
+    flex: 1,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: theme.colors.error,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  confirmButtonText: {
+    ...theme.typography.button,
+    color: theme.colors.onError,
   },
 });

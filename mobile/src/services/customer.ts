@@ -11,6 +11,9 @@ export type StoreSummary = {
   status: StoreStatus;
   rating: number;
   review_count: number;
+  owner_name: string | null;
+  sales_count: number;
+  total_sales: number;
 };
 
 export type Review = {
@@ -38,6 +41,10 @@ const mapStoreSummary = (row: any): StoreSummary => {
   const reviewCount = ratings.length;
   const average = reviewCount ? ratings.reduce((sum: number, r: number) => sum + r, 0) / reviewCount : 0;
 
+  const sales = row.sales ?? [];
+  const salesCount = sales.length;
+  const totalSales = sales.reduce((sum: number, s: any) => sum + (s.total_amount || 0), 0);
+
   return {
     store_id: row.store_id,
     store_name: row.store_name,
@@ -46,8 +53,11 @@ const mapStoreSummary = (row: any): StoreSummary => {
     longitude: row.longitude,
     image_url: row.image_url,
     status: row.status,
-    rating: roundRating(average),
+    rating: roundRating(average) || 0,
     review_count: reviewCount,
+    owner_name: row.users?.name ?? null,
+    sales_count: salesCount,
+    total_sales: totalSales,
   };
 };
 
@@ -58,7 +68,7 @@ export const CustomerService = {
   async listStores(): Promise<StoreSummary[]> {
     const { data, error } = await supabase
       .from('stores')
-      .select('store_id, store_name, address, latitude, longitude, image_url, status, reviews(rating)')
+      .select('store_id, store_name, address, latitude, longitude, image_url, status, reviews(rating), users(name), sales(total_amount)')
       .order('store_name');
 
     if (error) throw new Error(`Failed to fetch stores: ${error.message}`);
@@ -74,7 +84,7 @@ export const CustomerService = {
 
     const { data, error } = await supabase
       .from('stores')
-      .select('store_id, store_name, address, latitude, longitude, image_url, status, reviews(rating)')
+      .select('store_id, store_name, address, latitude, longitude, image_url, status, reviews(rating), users(name), sales(total_amount)')
       .ilike('store_name', `%${query}%`)
       .order('store_name');
 
@@ -89,7 +99,7 @@ export const CustomerService = {
   async getStoreById(store_id: string): Promise<StoreSummary | null> {
     const { data, error } = await supabase
       .from('stores')
-      .select('store_id, store_name, address, latitude, longitude, image_url, status, reviews(rating)')
+      .select('store_id, store_name, address, latitude, longitude, image_url, status, reviews(rating), users(name), sales(total_amount)')
       .eq('store_id', store_id)
       .single();
 
@@ -109,7 +119,7 @@ export const CustomerService = {
 
     const { data, error } = await supabase
       .from('stores')
-      .select('store_id, store_name, address, latitude, longitude, image_url, status, reviews(rating)')
+      .select('store_id, store_name, address, latitude, longitude, image_url, status, reviews(rating), users(name), sales(total_amount)')
       .in('store_id', store_ids);
 
     if (error) throw new Error(`Failed to fetch saved stores: ${error.message}`);
@@ -136,7 +146,7 @@ export const CustomerService = {
       rating: row.rating,
       comment: row.comment,
       created_at: row.created_at,
-      author_name: row.users?.name ?? null,
+      author_name: (Array.isArray(row.users) ? row.users[0]?.name : row.users?.name) ?? null,
     }));
   },
 
@@ -157,6 +167,15 @@ export const CustomerService = {
 
     if (error) throw new Error(`Failed to create review: ${error.message}`);
 
+    // Trigger notification for the store owner (Infrastructure hook)
+    import('./notificationService').then(({ NotificationService }) => {
+      NotificationService.scheduleLocalNotification(
+        'Bagong Review!',
+        `Nakakuha ka ng ${data.rating}-star review para sa iyong store.`,
+        { url: `/(tabs)/profile` } // Owners check reviews in profile/store view
+      );
+    });
+
     return {
       review_id: data.review_id,
       user_id: data.user_id,
@@ -164,8 +183,29 @@ export const CustomerService = {
       rating: data.rating,
       comment: data.comment,
       created_at: data.created_at,
-      author_name: data.users?.[0]?.name ?? null,
+      author_name: (Array.isArray(data.users) ? (data.users[0] as any)?.name : (data.users as any)?.name) ?? null,
     };
+  },
+
+  /**
+   * Delete a review.
+   */
+  async deleteReview(review_id: string, user_id: string): Promise<void> {
+    console.log('Service: Attempting delete', { review_id, user_id });
+    const { error, status } = await supabase
+      .from('reviews')
+      .delete()
+      .match({ review_id, user_id });
+
+    if (error) {
+      console.error('Supabase delete error:', error);
+      throw new Error(error.message);
+    }
+    
+    console.log('Supabase delete status:', status);
+    if (status >= 400) {
+      throw new Error(`Delete failed with status ${status}. Check RLS policies.`);
+    }
   },
 
   /**

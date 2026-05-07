@@ -103,9 +103,10 @@ auth.json
 .expo/
 dist/
 web-build/
+android/
+ios/
 
 # Firebase Secrets
 google-services.json
 GoogleService-Info.plist
 firebase.json
-package-lock.json

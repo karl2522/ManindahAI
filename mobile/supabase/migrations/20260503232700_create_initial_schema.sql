@@ -115,7 +115,9 @@ CREATE TABLE IF NOT EXISTS inventory_logs (
   log_id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   product_id        UUID NOT NULL REFERENCES products(product_id) ON DELETE CASCADE,
   change_type       inventory_change_type NOT NULL,
-  quantity_changed  INTEGER NOT NULL,
+  quantity_changed  INTEGER NOT NULL DEFAULT 0,
+  old_price         NUMERIC(10, 2),
+  new_price         NUMERIC(10, 2),
   date              TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

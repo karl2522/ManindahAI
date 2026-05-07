@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, Platform, Linking, Alert } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, Platform, Alert } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { useQuery } from '@tanstack/react-query';
 import { MaterialIcons } from '@expo/vector-icons';
-import { Stack, useRouter } from 'expo-router';
+import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
+import * as Location from 'expo-location';
+import { useRef } from 'react';
 import { CustomerService, StoreSummary } from '../../src/services/customer';
 import { ProductService } from '../../src/services/product';
 import { theme } from '../../src/theme/theme';
@@ -27,6 +29,11 @@ export default function ExploreScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStore, setSelectedStore] = useState<StoreSummary | null>(null);
   const [mapCenter, setMapCenter] = useState<MapRegion>(DEFAULT_CENTER);
+  const [autoFollow, setAutoFollow] = useState(true);
+  const params = useLocalSearchParams<{ storeId?: string }>();
+  const [userLocation, setUserLocation] = useState<Location.LocationObject | null>(null);
+  const locationSubscription = useRef<Location.LocationSubscription | null>(null);
+  const webViewRef = useRef<any>(null);
 
   const {
     data: stores = [],
@@ -53,7 +60,6 @@ export default function ExploreScreen() {
     if (Platform.OS !== 'web') return;
     require('leaflet/dist/leaflet.css');
   }, []);
-
   useEffect(() => {
     const trimmed = searchQuery.trim();
     const withCoords = stores.find((store) => store.latitude && store.longitude);
@@ -77,9 +83,48 @@ export default function ExploreScreen() {
     }
   }, [searchQuery, stores, selectedStore]);
 
+  useEffect(() => {
+    const startTracking = async () => {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') return;
+
+      const initial = await Location.getCurrentPositionAsync({});
+      setUserLocation(initial);
+
+      locationSubscription.current = await Location.watchPositionAsync(
+        { accuracy: Location.Accuracy.BestForNavigation, distanceInterval: 5 },
+        (loc) => {
+          setUserLocation(loc);
+          if (autoFollow) {
+            setMapCenter({
+              latitude: loc.coords.latitude,
+              longitude: loc.coords.longitude
+            });
+          }
+          if (webViewRef.current) {
+            webViewRef.current.postMessage(JSON.stringify({
+              type: 'locationUpdate',
+              lat: loc.coords.latitude,
+              lng: loc.coords.longitude
+            }));
+          }
+        }
+      );
+    };
+
+    startTracking();
+    return () => {
+      if (locationSubscription.current) {
+        locationSubscription.current.remove();
+      }
+    };
+  }, []);
+
   const itemChips = useMemo(() => {
     if (!selectedStoreItemsQuery.data) return [];
-    return selectedStoreItemsQuery.data.map((item) => item.name).slice(0, 8);
+    return selectedStoreItemsQuery.data.map((item) => 
+      `${item.name} · ₱${item.selling_price.toFixed(2)}`
+    ).slice(0, 8);
   }, [selectedStoreItemsQuery.data]);
 
   const handleMapSelect = (storeId: string) => {
@@ -87,27 +132,14 @@ export default function ExploreScreen() {
     if (match) setSelectedStore(match);
   };
 
-  const handleGetDirections = async () => {
-    if (!selectedStore?.latitude || !selectedStore?.longitude) {
-      Alert.alert('Directions', 'Store location is not available yet.');
-      return;
+  const handleRecenter = () => {
+    if (userLocation) {
+      setAutoFollow(true);
+      setMapCenter({
+        latitude: userLocation.coords.latitude,
+        longitude: userLocation.coords.longitude
+      });
     }
-
-    const lat = selectedStore.latitude;
-    const lng = selectedStore.longitude;
-    const label = encodeURIComponent(selectedStore.store_name || 'Store');
-
-    const url = Platform.OS === 'ios'
-      ? `http://maps.apple.com/?daddr=${lat},${lng}&q=${label}`
-      : `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
-
-    const canOpen = await Linking.canOpenURL(url);
-    if (!canOpen) {
-      Alert.alert('Directions', 'Unable to open maps on this device.');
-      return;
-    }
-
-    await Linking.openURL(url);
   };
 
   return (
@@ -120,30 +152,50 @@ export default function ExploreScreen() {
             stores={stores}
             center={mapCenter}
             onSelect={handleMapSelect}
+            userLat={userLocation?.coords.latitude}
+            userLng={userLocation?.coords.longitude}
           />
         ) : (
           <LeafletNativeMap
+            webViewRef={webViewRef}
             WebViewComponent={WebViewComponent}
             stores={stores}
             center={mapCenter}
             onSelect={handleMapSelect}
+            userLat={userLocation?.coords.latitude}
+            userLng={userLocation?.coords.longitude}
+            onManualPan={() => setAutoFollow(false)}
           />
         )}
       </View>
 
-      <View style={styles.searchContainer}>
-        <MaterialIcons name="search" size={20} color={theme.colors.outline} />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search for stores or items..."
-          placeholderTextColor={theme.colors.outline}
-          value={searchQuery}
-          onChangeText={setSearchQuery}
+      <TouchableOpacity 
+        style={[styles.recenterButton, { bottom: selectedStore ? 240 : 100 }]} 
+        onPress={handleRecenter}
+        accessibilityRole="button"
+        accessibilityLabel="Recenter map"
+        importantForAccessibility="yes"
+      >
+        <MaterialIcons 
+          name={autoFollow ? "my-location" : "location-searching"} 
+          size={24} 
+          color={autoFollow ? "#FFB300" : theme.colors.onSurfaceVariant} 
         />
-        <TouchableOpacity style={styles.filterButton}>
-          <MaterialIcons name="tune" size={20} color={theme.colors.primaryContainer} />
-        </TouchableOpacity>
-      </View>
+      </TouchableOpacity>
+
+      <View style={styles.searchContainer}>
+          <MaterialIcons name="search" size={20} color={theme.colors.outline} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search for stores or items..."
+            placeholderTextColor={theme.colors.outline}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+          />
+          <TouchableOpacity style={styles.filterButton}>
+            <MaterialIcons name="tune" size={20} color={theme.colors.primaryContainer} />
+          </TouchableOpacity>
+        </View>
 
       {isLoading && (
         <View style={styles.loadingOverlay}>
@@ -158,13 +210,13 @@ export default function ExploreScreen() {
               <TouchableOpacity onPress={() => router.push(`/store/${selectedStore.store_id}`)}>
                 <Text style={styles.sheetTitle}>{selectedStore.store_name}</Text>
               </TouchableOpacity>
-              <Text style={styles.sheetSub}>~200m away</Text>
+              <Text style={styles.sheetSub}>Owner: {selectedStore.owner_name ?? 'Community Member'}</Text>
             </View>
             <View style={styles.sheetRight}>
               <StatusChip status={selectedStore.status} />
               <View style={styles.ratingRow}>
                 <RatingStars rating={selectedStore.rating} />
-                <Text style={styles.ratingText}>{selectedStore.rating.toFixed(1)}</Text>
+                <Text style={styles.ratingText}>{(selectedStore.rating || 0).toFixed(1)}</Text>
               </View>
             </View>
           </View>
@@ -185,11 +237,11 @@ export default function ExploreScreen() {
           )}
 
           <View style={styles.sheetActions}>
-            <TouchableOpacity style={styles.secondarySheetButton} onPress={() => router.push(`/store/${selectedStore.store_id}`)}>
-              <Text style={styles.secondarySheetButtonText}>View Store</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.primaryButton} onPress={handleGetDirections}>
-              <Text style={styles.primaryButtonText}>Get Directions</Text>
+            <TouchableOpacity 
+              style={[styles.primaryButton, { flex: 1 }]} 
+              onPress={() => router.push(`/store/${selectedStore.store_id}`)}
+            >
+              <Text style={styles.primaryButtonText}>View Store</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -202,10 +254,14 @@ function LeafletWebMap({
   stores,
   center,
   onSelect,
+  userLat,
+  userLng,
 }: {
   stores: StoreSummary[];
   center: MapRegion;
   onSelect: (storeId: string) => void;
+  userLat?: number;
+  userLng?: number;
 }) {
   const { MapContainer, TileLayer, Marker, useMap } = require('react-leaflet');
   const L = require('leaflet');
@@ -218,6 +274,48 @@ function LeafletWebMap({
       iconAnchor: [12, 41],
     });
     L.Marker.prototype.options.icon = icon;
+
+    // Inject User Location Styles for Web
+    if (typeof document !== 'undefined') {
+      const styleId = 'user-location-styles';
+      if (!document.getElementById(styleId)) {
+        const style = document.createElement('style');
+        style.id = styleId;
+        style.innerHTML = `
+          .user-location-marker {
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000 !important;
+          }
+          .dot-core {
+            width: 14px;
+            height: 14px;
+            background: #4285F4;
+            border: 2px solid white;
+            border-radius: 50%;
+            box-shadow: 0 0 6px rgba(0,0,0,0.3);
+            z-index: 2;
+          }
+          .pulse-aura {
+            position: absolute;
+            width: 40px;
+            height: 40px;
+            background: rgba(66, 133, 244, 0.2);
+            border-radius: 50%;
+            animation: mapPulse 2s ease-out infinite;
+            z-index: 1;
+          }
+          @keyframes mapPulse {
+            0% { transform: scale(0.5); opacity: 0.8; }
+            100% { transform: scale(2); opacity: 0; }
+          }
+        `;
+        document.head.appendChild(style);
+      }
+    }
   }, [L]);
 
   const MapRecenter = () => {
@@ -228,6 +326,17 @@ function LeafletWebMap({
     return null;
   };
 
+  const UserMarker = () => {
+    if (!userLat || !userLng) return null;
+    const userIcon = L.divIcon({
+      className: 'user-location-marker',
+      iconSize: [20, 20],
+      iconAnchor: [10, 10],
+      html: '<div class="pulse-aura"></div><div class="dot-core"></div>'
+    });
+    return <Marker position={[userLat, userLng]} icon={userIcon} zIndexOffset={1000} />;
+  };
+
   return (
     <MapContainer
       center={[center.latitude, center.longitude]}
@@ -236,6 +345,7 @@ function LeafletWebMap({
       zoomControl={false}
     >
       <MapRecenter />
+      <UserMarker />
       <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
       {stores
         .filter((store) => store.latitude && store.longitude)
@@ -253,15 +363,23 @@ function LeafletWebMap({
 }
 
 function LeafletNativeMap({
+  webViewRef,
   WebViewComponent,
   stores,
   center,
   onSelect,
+  userLat,
+  userLng,
+  onManualPan,
 }: {
+  webViewRef: any;
   WebViewComponent: any;
   stores: StoreSummary[];
   center: MapRegion;
   onSelect: (storeId: string) => void;
+  userLat?: number;
+  userLng?: number;
+  onManualPan: () => void;
 }) {
   if (!WebViewComponent) return null;
 
@@ -276,24 +394,157 @@ function LeafletNativeMap({
   const html = `<!doctype html>
   <html>
     <head>
-      <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+      <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
       <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
       <style>
-        html, body, #map { height: 100%; margin: 0; }
+        html, body, #map { height: 100%; margin: 0; background: #f8f9fa; }
+        .user-location-marker {
+          width: 24px;
+          height: 24px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 1000 !important;
+        }
+        .dot-core {
+          width: 14px;
+          height: 14px;
+          background: #4285F4;
+          border: 2px solid white;
+          border-radius: 50%;
+          box-shadow: 0 0 6px rgba(0,0,0,0.3);
+          z-index: 2;
+        }
+        .pulse-aura {
+          position: absolute;
+          width: 40px;
+          height: 40px;
+          background: rgba(66, 133, 244, 0.2);
+          border-radius: 50%;
+          animation: mapPulse 2s ease-out infinite;
+          z-index: 1;
+        }
+        @keyframes mapPulse {
+          0% { transform: scale(0.5); opacity: 0.8; }
+          100% { transform: scale(2); opacity: 0; }
+        }
+        .start-marker {
+          width: 14px;
+          height: 14px;
+          background: #757575;
+          border: 2px solid white;
+          border-radius: 50%;
+          z-index: 999 !important;
+        }
       </style>
     </head>
     <body>
       <div id="map"></div>
       <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
       <script>
-        const map = L.map('map').setView([${center.latitude}, ${center.longitude}], 15);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+        // Senior Dev Fix: Passive listeners for better scroll performance
+        (function() {
+          const originalAddEventListener = EventTarget.prototype.addEventListener;
+          EventTarget.prototype.addEventListener = function(type, listener, options) {
+            if (['touchstart', 'touchmove', 'wheel', 'mousewheel'].includes(type)) {
+              if (typeof options === 'boolean') {
+                options = { capture: options, passive: true };
+              } else if (typeof options === 'object') {
+                options.passive = options.passive !== undefined ? options.passive : true;
+              } else {
+                options = { passive: true };
+              }
+            }
+            return originalAddEventListener.call(this, type, listener, options);
+          };
+        })();
+
+        function calculateDistance(lat1, lon1, lat2, lon2) {
+          const R = 6371; // km
+          const dLat = (lat2 - lat1) * Math.PI / 180;
+          const dLon = (lon2 - lon1) * Math.PI / 180;
+          const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+          const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+          return R * c;
+        }
+
+        function calculateBearing(lat1, lon1, lat2, lon2) {
+          const φ1 = lat1 * Math.PI / 180;
+          const φ2 = lat2 * Math.PI / 180;
+          const Δλ = (lon2 - lon1) * Math.PI / 180;
+          const y = Math.sin(Δλ) * Math.cos(φ2);
+          const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+          const θ = Math.atan2(y, x);
+          return (θ * 180 / Math.PI + 360) % 360;
+        }
+
+        const map = L.map('map', { 
+          zoomControl: false,
+          attributionControl: false,
+          tap: false
+        }).setView([${center.latitude}, ${center.longitude}], 15);
+
+        // Fix Tracking Prevention by overriding default icon logic
+        delete L.Icon.Default.prototype._getIconUrl;
+        L.Icon.Default.mergeOptions({
+          iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
+          iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
+          shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+        });
+        
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+          attribution: '&copy; OpenStreetMap'
+        }).addTo(map);
+
+        map.on('movestart', (e) => {
+          if (e.originalEvent) {
+             window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'manualPan' }));
+          }
+        });
+        
+        const redPinIcon = L.icon({
+          iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
+          shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+          iconSize: [30, 48],
+          iconAnchor: [15, 48],
+          popupAnchor: [1, -34],
+          shadowSize: [48, 48]
+        });
+
+        const userIcon = L.divIcon({ 
+          className: 'user-location-marker', 
+          iconSize: [24, 24], 
+          iconAnchor: [12, 12],
+          html: '<div class="pulse-aura"></div><div class="dot-core"></div>'
+        });
+        let userMarker = null;
+        if (${userLat} && ${userLng}) {
+          console.log('Initial user location:', ${userLat}, ${userLng});
+          userMarker = L.marker([${userLat}, ${userLng}], { icon: userIcon }).addTo(map);
+        }
+
         const markers = ${JSON.stringify(markers)};
         markers.forEach((m) => {
-          const marker = L.marker([m.latitude, m.longitude]).addTo(map);
+          const marker = L.marker([m.latitude, m.longitude], { icon: redPinIcon }).addTo(map);
           marker.on('click', () => {
             window.ReactNativeWebView.postMessage(JSON.stringify({ storeId: m.store_id }));
           });
+        });
+
+        window.addEventListener('message', (e) => {
+          const data = JSON.parse(e.data);
+          
+          if (data.type === 'locationUpdate') {
+            console.log('Location update received:', data.lat, data.lng);
+            const userLatLng = L.latLng(data.lat, data.lng);
+            if (!userMarker) {
+              userMarker = L.marker(userLatLng, { icon: userIcon }).addTo(map);
+            } else {
+              userMarker.setLatLng(userLatLng);
+            }
+          }
         });
       </script>
     </body>
@@ -301,16 +552,18 @@ function LeafletNativeMap({
 
   return (
     <WebViewComponent
-      key={`${center.latitude}_${center.longitude}_${markers.length}`}
+      ref={webViewRef}
+      key="main-map"
       originWhitelist={['*']}
       source={{ html }}
       style={{ flex: 1 }}
       onMessage={(event: any) => {
         try {
           const data = JSON.parse(event.nativeEvent.data);
+          if (data.type === 'manualPan') onManualPan();
           if (data.storeId) onSelect(data.storeId);
         } catch {
-          // Ignore malformed messages
+          // Ignore
         }
       }}
     />
@@ -461,14 +714,24 @@ const styles = StyleSheet.create({
   ratingText: { ...theme.typography.labelMedium, color: theme.colors.onSurfaceVariant },
   chipRow: { gap: 8 },
   chip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    backgroundColor: theme.colors.surfaceContainerLow,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: theme.colors.surface,
     borderWidth: 1,
     borderColor: theme.colors.surfaceVariant,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
   },
-  chipText: { ...theme.typography.labelMedium, color: theme.colors.onSurface },
+  chipText: { 
+    ...theme.typography.labelMedium, 
+    color: theme.colors.onSurface,
+    fontWeight: '600',
+    letterSpacing: 0.2,
+  },
   emptyChipText: { ...theme.typography.labelMedium, color: theme.colors.outline, paddingVertical: 4 },
   primaryButton: {
     flex: 1,
@@ -509,5 +772,65 @@ const styles = StyleSheet.create({
   statusText: {
     ...theme.typography.labelMedium,
     fontWeight: '600',
+  },
+  recenterButton: {
+    position: 'absolute',
+    right: 16,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: theme.colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceVariant,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 5,
+    zIndex: 3,
+  },
+  navHeader: {
+    position: 'absolute',
+    top: 54,
+    left: 16,
+    right: 16,
+    backgroundColor: theme.colors.surface,
+    borderRadius: 16,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceVariant,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 6,
+    zIndex: 10,
+  },
+  navInfo: {
+    flex: 1,
+  },
+  navTitle: {
+    ...theme.typography.h3,
+    color: theme.colors.onSurface,
+    fontSize: 16,
+  },
+  navSub: {
+    ...theme.typography.bodySmall,
+    color: theme.colors.primaryContainer,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  exitButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: theme.colors.errorContainer,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

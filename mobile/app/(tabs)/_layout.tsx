@@ -2,47 +2,34 @@ import { Tabs, useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { TouchableOpacity, Alert, Platform, View, Text, StyleSheet } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
-import { AuthService } from '../../src/services/auth';
 import { theme } from '../../src/theme/theme';
 import { useStore } from '../../src/hooks/useStore';
+import { SyncBadge } from '../../src/components/SyncBadge';
 import { useEffect } from 'react';
 
 export default function TabsLayout() {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { roles, loading, error, store } = useStore();
+  const { roles, loading, isFetching, error, store, profile } = useStore();
 
   useEffect(() => {
-    if (loading) return;
-    if (error === 'Not authenticated') {
+    // Wait for initial load and background sync before making navigation decisions
+    if (loading || isFetching) return;
+
+    if (!profile) {
       router.replace('/(auth)/login');
       return;
     }
-    if (!roles.includes('owner') && !store) {
-      router.replace('/(customer)');
-    }
-  }, [loading, error, roles, store, router]);
 
-  const doLogout = async () => {
-    try {
-      await AuthService.logout();
-      queryClient.clear();
-      router.replace('/(auth)/login');
-    } catch (e: any) {
-      Alert.alert('Error', String(e?.message ?? e));
+    const hasOwnerRole = roles.includes('owner');
+    console.log('[TabsLayout] Guard Check:', { hasOwnerRole, roles, hasStore: !!store });
+    
+    if (!hasOwnerRole) {
+      console.warn('[TabsLayout] DENIED: No owner role found. Redirecting to setup...');
+      router.replace('/onboarding/store-setup');
     }
-  };
+  }, [loading, isFetching, error, roles, store, router, profile]);
 
-  const handleLogout = () => {
-    if (Platform.OS === 'web') {
-      if (window.confirm('Are you sure you want to log out?')) doLogout();
-      return;
-    }
-    Alert.alert('Logout', 'Are you sure you want to log out?', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Logout', style: 'destructive', onPress: doLogout },
-    ]);
-  };
 
   return (
     <Tabs
@@ -74,10 +61,10 @@ export default function TabsLayout() {
           fontWeight: '700',
           fontSize: 20,
         },
-        headerRight: () => (
-          <TouchableOpacity onPress={handleLogout} style={{ marginRight: 16 }}>
-            <MaterialIcons name="logout" size={22} color={theme.colors.primaryContainer} />
-          </TouchableOpacity>
+        headerLeft: () => (
+          <View style={{ marginLeft: 16 }}>
+            <SyncBadge />
+          </View>
         ),
       }}
     >
@@ -86,7 +73,7 @@ export default function TabsLayout() {
         options={{
           title: 'Dashboard',
           tabBarLabel: 'Dashboard',
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ color, size }: { color: string; size: number }) => (
             <MaterialIcons name="dashboard" size={size} color={color} />
           ),
         }}
@@ -96,7 +83,7 @@ export default function TabsLayout() {
         options={{
           title: 'Stock List',
           tabBarLabel: 'Stock List',
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ color, size }: { color: string; size: number }) => (
             <MaterialIcons name="inventory-2" size={size} color={color} />
           ),
         }}
@@ -107,7 +94,7 @@ export default function TabsLayout() {
           title: 'Scan',
           tabBarLabel: () => null,
           tabBarStyle: { display: 'none' },
-          tabBarIcon: ({ focused }) => (
+          tabBarIcon: ({ focused }: { focused: boolean }) => (
             <View style={styles.scanButtonContainer}>
               <View style={[
                 styles.scanButton,
@@ -125,7 +112,7 @@ export default function TabsLayout() {
         options={{
           title: 'Financial Hub',
           tabBarLabel: 'Financial Hub',
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ color, size }: { color: string; size: number }) => (
             <MaterialIcons name="payments" size={size} color={color} />
           ),
         }}
@@ -135,13 +122,20 @@ export default function TabsLayout() {
         options={{
           title: 'Insights',
           tabBarLabel: 'Insights',
-          tabBarIcon: ({ color, size }) => (
+          tabBarIcon: ({ color, size }: { color: string; size: number }) => (
             <MaterialIcons name="insights" size={size} color={color} />
           ),
         }}
       />
       <Tabs.Screen
         name="profile"
+        options={{
+          href: null,
+          tabBarStyle: { display: 'none' },
+        }}
+      />
+      <Tabs.Screen
+        name="store_location"
         options={{
           href: null,
           tabBarStyle: { display: 'none' },

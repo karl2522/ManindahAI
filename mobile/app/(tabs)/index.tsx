@@ -1,11 +1,46 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Alert, ActivityIndicator } from 'react-native';
+import { useCallback } from 'react';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Stack, useRouter } from 'expo-router';
+import { useQuery } from '@tanstack/react-query';
+import { useFocusEffect } from '@react-navigation/native';
+import { useNetInfo } from '@react-native-community/netinfo';
 import { theme } from '../../src/theme/theme';
-import { AuthService } from '../../src/services/auth';
+import { useStore } from '../../src/hooks/useStore';
+import { InventoryService } from '../../src/services/inventory';
+import { SalesService } from '../../src/services/sales';
+import { Product } from '../../src/services/product';
 
 export default function TabsIndex() {
   const router = useRouter();
+  const { store } = useStore();
+  const netInfo = useNetInfo();
+  const isOnline = netInfo.isConnected === true && netInfo.isInternetReachable !== false;
+
+  const _d = new Date();
+  const todayStart = new Date(_d.getFullYear(), _d.getMonth(), _d.getDate()).toISOString();
+  const todayEnd = new Date(_d.getFullYear(), _d.getMonth(), _d.getDate(), 23, 59, 59, 999).toISOString();
+
+  const { data: todaySales = [], isLoading: loadingTodaySales } = useQuery({
+    queryKey: ['sales-today', store?.store_id, todayStart],
+    queryFn: () => SalesService.getByDateRange(store!.store_id, todayStart, todayEnd),
+    enabled: !!store?.store_id,
+  });
+
+  const todayRevenue = todaySales.reduce((s, sale) => s + sale.total_amount, 0);
+  const todayTransactions = todaySales.length;
+
+  const { data: lowStockProducts = [], isLoading: loadingLowStock, refetch } = useQuery({
+    queryKey: ['low_stock', store?.store_id],
+    queryFn: () => InventoryService.getLowStockProducts(store!.store_id),
+    enabled: !!store,
+  });
+
+  useFocusEffect(
+    useCallback(() => {
+      if (store) refetch();
+    }, [store, refetch])
+  );
 
   return (
     <ScrollView 
@@ -20,21 +55,33 @@ export default function TabsIndex() {
                 <MaterialIcons name="storefront" size={20} color={theme.colors.primaryContainer} />
               </View>
               <View>
-                <Text style={styles.headerTitleText}>Manindah Store</Text>
+                <Text style={styles.headerTitleText}>{store?.store_name ?? 'My Store'}</Text>
                 <View style={styles.statusContainer}>
-                  <View style={styles.statusDot} />
-                  <Text style={styles.statusText}>Naka-Offline</Text>
+                  <View style={[styles.statusDot, { backgroundColor: isOnline ? '#34c759' : theme.colors.error }]} />
+                  <Text style={styles.statusText}>{isOnline ? 'Naka-Online' : 'Naka-Offline'}</Text>
                 </View>
               </View>
             </View>
           ),
-          headerRight: () => (
-            <TouchableOpacity style={styles.headerIconButton}>
-              <MaterialIcons name="cloud-off" size={24} color={theme.colors.primaryContainer} />
-            </TouchableOpacity>
-          ),
         }}
       />
+
+      {/* Setup Banner (if location missing) */}
+      {(!store?.latitude || !store?.longitude) && (
+        <TouchableOpacity 
+          style={styles.setupBanner} 
+          onPress={() => router.push('/(tabs)/store_location')}
+        >
+          <View style={styles.setupIconBox}>
+            <MaterialIcons name="add-location-alt" size={24} color={theme.colors.onPrimary} />
+          </View>
+          <View style={styles.setupTextContent}>
+            <Text style={styles.setupTitle}>Set Store Location</Text>
+            <Text style={styles.setupSubtitle}>Help customers find your store on the map.</Text>
+          </View>
+          <MaterialIcons name="chevron-right" size={24} color={theme.colors.primary} />
+        </TouchableOpacity>
+      )}
 
       {/* Today's Sales Card */}
       <View style={styles.salesCard}>
@@ -43,8 +90,14 @@ export default function TabsIndex() {
           <MaterialIcons name="trending-up" size={24} color={theme.colors.tertiaryContainer} />
         </View>
         <View>
-          <Text style={styles.salesAmount}>₱ 4,250.00</Text>
-          <Text style={styles.salesSubtitle}>24 Transactions</Text>
+          <Text style={styles.salesAmount}>
+            {loadingTodaySales
+              ? '--'
+              : `₱ ${todayRevenue.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+          </Text>
+          <Text style={styles.salesSubtitle}>
+            {loadingTodaySales ? '' : `${todayTransactions} Transaction${todayTransactions !== 1 ? 's' : ''}`}
+          </Text>
         </View>
       </View>
 
@@ -55,7 +108,7 @@ export default function TabsIndex() {
           label="Manual Sale" 
           color={theme.colors.primaryFixed} 
           iconColor={theme.colors.primaryContainer} 
-          onPress={() => Alert.alert('Manual Sale', 'Opening POS interface...')}
+          onPress={() => router.push('/sales/record')}
         />
         <ActionButton 
           icon="receipt-long" 
@@ -65,11 +118,11 @@ export default function TabsIndex() {
           onPress={() => router.push('/(tabs)/financial_hub')}
         />
         <ActionButton 
-          icon="local-shipping" 
-          label="Supplier Matrix" 
+          icon="map" 
+          label="Store Location" 
           color={theme.colors.secondaryContainer} 
           iconColor={theme.colors.onSecondaryContainer} 
-          onPress={() => Alert.alert('Supplier Matrix', 'Opening supplier management...')}
+          onPress={() => router.push('/(tabs)/store_location')}
         />
         <ActionButton 
           icon="account-circle" 
@@ -81,42 +134,45 @@ export default function TabsIndex() {
       </View>
 
       {/* Low Stock Alert Section */}
-      <View style={styles.alertSection}>
-        <View style={styles.alertHeader}>
-          <MaterialIcons name="warning" size={20} color={theme.colors.error} />
-          <Text style={styles.alertTitle}>Kulang sa Stocks</Text>
+      {loadingLowStock ? (
+        <ActivityIndicator size="small" color={theme.colors.error} style={{ marginVertical: 8 }} />
+      ) : lowStockProducts.length === 0 ? (
+        <View style={[styles.alertSection, { borderColor: theme.colors.outlineVariant, backgroundColor: theme.colors.surfaceContainerLow }]}>
+          <View style={styles.alertHeader}>
+            <MaterialIcons name="check-circle" size={20} color={theme.colors.tertiaryContainer} />
+            <Text style={[styles.alertTitle, { color: theme.colors.tertiaryContainer }]}>All stock levels are healthy!</Text>
+          </View>
         </View>
-        
-        <View style={styles.alertList}>
-          <LowStockItem 
-            name="Lucky Me Beef Noodles" 
-            stock="Only 5 left" 
-            imageUrl="https://lh3.googleusercontent.com/aida-public/AB6AXuBEwWFVajpT8dN2HALY9xNTDCr667cuDe5SKfqsFcsxvlyZAyCVXnYdnM-FuEQRUuuc4EhkWDkWDdisJovyZ88RuBlra7o30zaYocjj6GTIQwhNq95jGB3Zikryy9_WkGRcWEQK4GTjrVwONbNdNgychji48QP_AuJKMT9_cz1wJTaRXVWxMn3dW1shNI7xcRQtYQkjttjM4BvpzRZsEVdFAkOncioVjNW5TotU2udDI3vMkpHRfxtqJ_HFC74W4HDE0Yy8lbqQDco"
-            onRestock={() => router.push('/(tabs)/inventory')}
-          />
-          <LowStockItem 
-            name="Coke Kasalo 800ml" 
-            stock="Only 2 left" 
-            imageUrl="https://lh3.googleusercontent.com/aida-public/AB6AXuAF7cYvn5HSOLMFLCZEbnQmJsMFkgZk1dyE7UaoZGC_wE61XRG5k7T3yrvWEaYGpIfBDyAGDTTG9QeEQpg28BlPdUvO0NsYcqo1_QwlazGdHUfh18FqDpP0crVSrd473HRTMgiXLzVRWYviymGlHwRzvWeuzNDMlIluTj0qwDuP-U0EypSnFkwLFgB1IwUu83X99HXGtvaw9Akt-34MBQv3hVbMvl9LKQcqXXXj-NqK8d2SSBmt7RhFc-iFP2aVRU6k-rvu-_ccgUw"
-            onRestock={() => router.push('/(tabs)/inventory')}
-          />
-        </View>
-      </View>
+      ) : (
+        <View style={styles.alertSection}>
+          <View style={styles.alertHeader}>
+            <MaterialIcons name="warning" size={20} color={theme.colors.error} />
+            <Text style={styles.alertTitle}>Kulang sa Stocks</Text>
+            <View style={styles.alertCountBadge}>
+              <Text style={styles.alertCountText}>{lowStockProducts.length}</Text>
+            </View>
+          </View>
 
-      {/* Temporary Logout Button */}
-      <TouchableOpacity 
-        style={[styles.actionButton, { marginTop: 20, backgroundColor: theme.colors.errorContainer, alignSelf: 'stretch', justifyContent: 'center' }]} 
-        onPress={async () => {
-          try {
-            await AuthService.logout();
-            router.replace('/(auth)/login');
-          } catch (e: any) {
-            Alert.alert('Logout Error', e.message);
-          }
-        }}
-      >
-        <Text style={[styles.actionLabel, { color: theme.colors.onErrorContainer, fontSize: 16, textAlign: 'center', width: '100%' }]}>Logout (Temporary)</Text>
-      </TouchableOpacity>
+          <View style={styles.alertList}>
+            {lowStockProducts.slice(0, 5).map(item => (
+              <LowStockItem
+                key={item.product_id}
+                item={item}
+                onRestock={() => router.push('/(tabs)/inventory')}
+              />
+            ))}
+            {lowStockProducts.length > 5 && (
+              <TouchableOpacity
+                style={styles.viewAllButton}
+                onPress={() => router.push('/(tabs)/inventory')}
+              >
+                <Text style={styles.viewAllText}>+{lowStockProducts.length - 5} more low-stock items →</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      )}
+
     </ScrollView>
   );
 }
@@ -132,13 +188,19 @@ function ActionButton({ icon, label, color, iconColor, onPress }: { icon: any, l
   );
 }
 
-function LowStockItem({ name, stock, imageUrl, onRestock }: { name: string, stock: string, imageUrl: string, onRestock?: () => void }) {
+function LowStockItem({ item, onRestock }: { item: Product, onRestock?: () => void }) {
   return (
     <View style={styles.stockItem}>
-      <Image source={{ uri: imageUrl }} style={styles.stockImage} />
+      {item.image_url ? (
+        <Image source={{ uri: item.image_url }} style={styles.stockImage} />
+      ) : (
+        <View style={[styles.stockImage, { alignItems: 'center', justifyContent: 'center', backgroundColor: theme.colors.surfaceContainer }]}>
+          <MaterialIcons name="inventory" size={24} color={theme.colors.outline} />
+        </View>
+      )}
       <View style={styles.stockInfo}>
-        <Text style={styles.stockName}>{name}</Text>
-        <Text style={styles.stockCount}>{stock}</Text>
+        <Text style={styles.stockName} numberOfLines={1}>{item.name}</Text>
+        <Text style={styles.stockCount}>Only {item.quantity} left</Text>
       </View>
       <TouchableOpacity style={styles.restockButton} onPress={onRestock}>
         <Text style={styles.restockButtonText}>Restock</Text>
@@ -228,6 +290,42 @@ const styles = StyleSheet.create({
   salesSubtitle: {
     ...theme.typography.bodyMedium,
     color: theme.colors.outline,
+  },
+  setupBanner: {
+    backgroundColor: theme.colors.primaryContainer,
+    borderRadius: theme.borderRadius.xl,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+    borderWidth: 1,
+    borderColor: theme.colors.primary,
+    elevation: 3,
+    shadowColor: theme.colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+  },
+  setupIconBox: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: theme.colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  setupTextContent: {
+    flex: 1,
+  },
+  setupTitle: {
+    ...theme.typography.h3,
+    color: theme.colors.onPrimaryContainer,
+    fontWeight: '700',
+  },
+  setupSubtitle: {
+    ...theme.typography.bodySmall,
+    color: theme.colors.onPrimaryContainer,
+    opacity: 0.8,
   },
   actionGrid: {
     flexDirection: 'row',
@@ -327,5 +425,26 @@ const styles = StyleSheet.create({
     ...theme.typography.button,
     fontSize: 12,
     color: theme.colors.onPrimary,
+  },
+  alertCountBadge: {
+    backgroundColor: theme.colors.error,
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    marginLeft: 4,
+  },
+  alertCountText: {
+    ...theme.typography.labelSmall,
+    color: theme.colors.onError,
+    fontWeight: '700',
+  },
+  viewAllButton: {
+    alignItems: 'center',
+    paddingVertical: 8,
+  },
+  viewAllText: {
+    ...theme.typography.labelMedium,
+    color: theme.colors.error,
+    fontWeight: '600',
   },
 });

@@ -1,7 +1,8 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   View, Text, StyleSheet, ScrollView, TouchableOpacity,
   Alert, Modal, TextInput, ActivityIndicator, Platform,
+  LayoutAnimation, UIManager, Pressable,
 } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -10,7 +11,8 @@ import { useFocusEffect } from '@react-navigation/native';
 import { theme } from '../../src/theme/theme';
 import { useStore } from '../../src/hooks/useStore';
 import { SalesService, Sale } from '../../src/services/sales';
-import { ExpenseService, Expense } from '../../src/services/expense';
+import { ExpenseService, Expense, CreateExpenseInput, UpdateExpenseInput } from '../../src/services/expense';
+import { useOfflineMutation } from '../../src/hooks/useOfflineMutation';
 
 function todayBounds() {
   const d = new Date();
@@ -78,10 +80,16 @@ function periodDateLabel(p: ReportPeriod): string {
 
 export default function FinancialHubScreen() {
   const [activeTab, setActiveTab] = useState<'sales' | 'expenses'>('sales');
-  const [reportPeriod, setReportPeriod] = useState<ReportPeriod>('this_month');
+  const [reportPeriod, setReportPeriod] = useState<ReportPeriod>('this_week');
   const { store } = useStore();
   const router = useRouter();
-  const queryClient = useQueryClient();
+   const queryClient = useQueryClient();
+
+  useEffect(() => {
+    if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+      UIManager.setLayoutAnimationEnabledExperimental(true);
+    }
+  }, []);
 
   const { data: sales = [], isLoading: salesLoading, refetch: refetchSales } = useQuery({
     queryKey: ['sales', store?.store_id],
@@ -102,26 +110,108 @@ export default function FinancialHubScreen() {
   const { start: ts, end: te } = todayBounds();
   const { start: ms, end: me } = monthBounds();
 
-  const todaySales = sales.filter(s => s.date >= ts && s.date <= te);
-  const todayRevenue = todaySales.reduce((sum, s) => sum + s.total_amount, 0);
-  const todayProfit = todaySales.reduce((sum, s) => sum + s.total_profit, 0);
+  const todaySales = sales.filter((s: Sale) => s.date >= ts && s.date <= te);
+  const todayRevenue = todaySales.reduce((sum: number, s: Sale) => sum + s.total_amount, 0);
+  const todayProfit = todaySales.reduce((sum: number, s: Sale) => sum + s.total_profit, 0);
 
-  const monthExpenses = expenses.filter(e => e.date >= ms && e.date <= me);
-  const monthlyTotal = monthExpenses.reduce((sum, e) => sum + e.amount, 0);
+  const monthExpenses = expenses.filter((e: Expense) => e.date >= ms && e.date <= me);
+  const monthlyTotal = monthExpenses.reduce((sum: number, e: Expense) => sum + e.amount, 0);
 
   const { start: ps, end: pe } = periodBounds(reportPeriod);
-  const periodSales = sales.filter(s => s.date.substring(0, 10) >= ps && s.date.substring(0, 10) <= pe);
-  const periodRevenue = periodSales.reduce((sum, s) => sum + s.total_amount, 0);
-  const periodProfit = periodSales.reduce((sum, s) => sum + s.total_profit, 0);
-  const periodSalesCount = periodSales.length;
-  const periodExpTotal = expenses.filter(e => e.date.substring(0, 10) >= ps && e.date.substring(0, 10) <= pe).reduce((sum, e) => sum + e.amount, 0);
+  const periodSales = sales.filter((s: Sale) => s.date.substring(0, 10) >= ps && s.date.substring(0, 10) <= pe);
+  const periodRevenue = (periodSales.reduce((sum: number, s: Sale) => sum + s.total_amount, 0)) || 0;
+  const periodProfit = (periodSales.reduce((sum: number, s: Sale) => sum + s.total_profit, 0)) || 0;
+  const periodSalesCount = periodSales.length || 0;
+  const periodExpenses = expenses.filter((e: Expense) => e.date.substring(0, 10) >= ps && e.date.substring(0, 10) <= pe);
+  const periodExpTotal = (periodExpenses.reduce((sum: number, e: Expense) => sum + e.amount, 0)) || 0;
   const periodNet = periodProfit - periodExpTotal;
+
+  // Analysis Insights
+  const biggestSale = periodSales.length > 0 ? periodSales.reduce((max, s) => s.total_profit > max.total_profit ? s : max, periodSales[0]) : null;
+  const biggestExp = periodExpenses.length > 0 ? periodExpenses.reduce((max, e) => e.amount > max.amount ? e : max, periodExpenses[0]) : null;
+  
+  const dailyProfitMap: Record<string, number> = {};
+  periodSales.forEach(s => {
+    const day = s.date.substring(0, 10);
+    dailyProfitMap[day] = (dailyProfitMap[day] || 0) + s.total_profit;
+  });
+  let bestDay = { date: '', profit: -Infinity };
+  Object.entries(dailyProfitMap).forEach(([date, profit]) => {
+    if (profit > bestDay.profit) bestDay = { date, profit };
+  });
+  
+  const profitMargin = periodRevenue > 0 ? (periodProfit / periodRevenue) * 100 : 0;
 
   const [expModal, setExpModal] = useState(false);
   const [editExp, setEditExp] = useState<Expense | null>(null);
   const [expName, setExpName] = useState('');
   const [expAmount, setExpAmount] = useState('');
-  const [saving, setSaving] = useState(false);
+  const [showCalculation, setShowCalculation] = useState(false);
+
+  const [showAnalysisPrompt, setShowAnalysisPrompt] = useState(false);
+
+  const handleProfitClick = () => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    setShowAnalysisPrompt(true);
+    setShowCalculation(false); // Reset calculation if prompt is shown
+  };
+
+  const handleAnalysisResponse = (response: 'yes' | 'no') => {
+    LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+    if (response === 'yes') {
+      setShowAnalysisPrompt(false);
+      setShowCalculation(true);
+    } else {
+      setShowAnalysisPrompt(false);
+      Alert.alert('ManindahAI', 'You can click me anytime if you need help.');
+    }
+  };
+  
+  const createExpenseMutation = useOfflineMutation<Expense, Error, CreateExpenseInput>({
+    mutationFn: (data: CreateExpenseInput) => ExpenseService.create(data),
+    getOutboxInput: (data: CreateExpenseInput) => ({
+      op: 'expense_create',
+      store_id: data.store_id,
+      payload: data,
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['expenses'] });
+      queryClient.invalidateQueries({ queryKey: ['summary'] });
+      setExpModal(false);
+    },
+    onError: (e: Error) => Alert.alert('Error', e.message),
+  });
+
+  const updateExpenseMutation = useOfflineMutation<Expense, Error, { id: string; data: UpdateExpenseInput }>({
+    mutationFn: ({ id, data }: { id: string; data: UpdateExpenseInput }) =>
+      ExpenseService.update(id, data),
+    getOutboxInput: ({ id, data }: { id: string; data: UpdateExpenseInput }) => ({
+      op: 'expense_update',
+      store_id: store!.store_id,
+      expense_id: id,
+      payload: data,
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['expenses'] });
+      queryClient.invalidateQueries({ queryKey: ['summary'] });
+      setExpModal(false);
+    },
+    onError: (e: Error) => Alert.alert('Error', e.message),
+  });
+
+  const deleteExpenseMutation = useOfflineMutation<void, Error, string>({
+    mutationFn: (id: string) => ExpenseService.delete(id),
+    getOutboxInput: (id: string) => ({
+      op: 'expense_delete',
+      store_id: store!.store_id,
+      expense_id: id,
+    }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['expenses'] });
+      queryClient.invalidateQueries({ queryKey: ['summary'] });
+    },
+    onError: (e: Error) => Alert.alert('Error', e.message),
+  });
 
   const openAdd = () => { setEditExp(null); setExpName(''); setExpAmount(''); setExpModal(true); };
   const openEdit = (e: Expense) => { setEditExp(e); setExpName(e.name); setExpAmount(String(e.amount)); setExpModal(true); };
@@ -131,28 +221,27 @@ export default function FinancialHubScreen() {
     const amount = parseFloat(expAmount);
     if (!expName.trim()) return Alert.alert('Error', 'Name is required');
     if (!amount || amount <= 0) return Alert.alert('Error', 'Enter a valid amount');
-    setSaving(true);
-    try {
-      if (editExp) {
-        await ExpenseService.update(editExp.expense_id, { name: expName.trim(), amount });
-      } else {
-        await ExpenseService.create({ store_id: store.store_id, name: expName.trim(), amount });
-      }
-      queryClient.invalidateQueries({ queryKey: ['expenses', store.store_id] });
-      setExpModal(false);
-    } catch (e: any) { Alert.alert('Error', e.message); }
-    finally { setSaving(false); }
+    
+    if (editExp) {
+      updateExpenseMutation.mutate({ 
+        id: editExp.expense_id, 
+        data: { name: expName.trim(), amount } 
+      });
+    } else {
+      createExpenseMutation.mutate({ 
+        store_id: store.store_id, 
+        name: expName.trim(), 
+        amount 
+      });
+    }
   };
+
+  const saving = createExpenseMutation.isPending || updateExpenseMutation.isPending;
 
   const deleteExpense = (exp: Expense) => {
     Alert.alert('Delete Expense', `Delete "${exp.name}"?`, [
       { text: 'Cancel', style: 'cancel' },
-      { text: 'Delete', style: 'destructive', onPress: async () => {
-        try {
-          await ExpenseService.delete(exp.expense_id);
-          queryClient.invalidateQueries({ queryKey: ['expenses', store!.store_id] });
-        } catch (e: any) { Alert.alert('Error', e.message); }
-      }},
+      { text: 'Delete', style: 'destructive', onPress: () => deleteExpenseMutation.mutate(exp.expense_id) }
     ]);
   };
 
@@ -198,7 +287,7 @@ export default function FinancialHubScreen() {
 
           {/* Period Report */}
           <View style={styles.periodSelector}>
-            {(['this_week', 'last_week', 'this_month', 'last_month'] as const).map(p => (
+            {(['this_week', 'last_week', 'this_month', 'last_month'] as const).map((p: ReportPeriod) => (
               <TouchableOpacity
                 key={p}
                 style={[styles.periodPill, reportPeriod === p && { backgroundColor: theme.colors.primaryContainer }]}
@@ -243,6 +332,129 @@ export default function FinancialHubScreen() {
                 </Text>
               </View>
             </View>
+
+            {/* Analysis Section */}
+            {!showAnalysisPrompt && !showCalculation && (
+              <TouchableOpacity 
+                style={styles.premiumTrigger}
+                onPress={handleProfitClick}
+                activeOpacity={0.7}
+              >
+                <View style={styles.triggerContent}>
+                  <View style={[styles.iconCircle, { backgroundColor: `${theme.colors.primary}15` }]}>
+                    <MaterialIcons name="auto-graph" size={20} color={theme.colors.primary} />
+                  </View>
+                  <View style={{ flex: 1, marginLeft: 12 }}>
+                    <Text style={[theme.typography.labelMedium, { color: theme.colors.primary, fontWeight: '700' }]}>INSIGHTS AVAILABLE</Text>
+                    <Text style={[theme.typography.bodySmall, { color: theme.colors.onSurfaceVariant }]}>See how your net profit was calculated</Text>
+                  </View>
+                  <MaterialIcons name="chevron-right" size={20} color={theme.colors.outlineVariant} />
+                </View>
+              </TouchableOpacity>
+            )}
+
+            {showAnalysisPrompt && (
+              <View style={styles.premiumPrompt}>
+                <Text style={[theme.typography.bodyMedium, { color: theme.colors.onSurface, textAlign: 'center', marginBottom: 16, fontWeight: '500' }]}>
+                  Would you like to see a breakdown of your net profit?
+                </Text>
+                <View style={styles.promptActions}>
+                  <TouchableOpacity 
+                    style={[styles.promptPill, { backgroundColor: theme.colors.surfaceContainerHighest }]}
+                    onPress={() => handleAnalysisResponse('no')}
+                  >
+                    <Text style={[theme.typography.labelLarge, { color: theme.colors.onSurfaceVariant }]}>Maybe later</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={[styles.promptPill, { backgroundColor: theme.colors.primary }]}
+                    onPress={() => handleAnalysisResponse('yes')}
+                  >
+                    <Text style={[theme.typography.labelLarge, { color: theme.colors.onPrimary }]}>Yes, show me</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
+            {showCalculation && (
+              <View style={styles.premiumCalculation}>
+                <View style={styles.calcHeader}>
+                  <View style={styles.calcHeaderTitle}>
+                    <MaterialIcons name="analytics" size={18} color={theme.colors.primary} style={{ marginRight: 8 }} />
+                    <Text style={[theme.typography.button, { color: theme.colors.onSurface }]}>Profit Analysis</Text>
+                  </View>
+                  <TouchableOpacity onPress={() => setShowCalculation(false)} style={styles.calcCloseBtn}>
+                    <MaterialIcons name="close" size={18} color={theme.colors.outline} />
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.calcList}>
+                  <View style={styles.calcRow}>
+                    <Text style={[theme.typography.bodyMedium, { color: theme.colors.onSurfaceVariant }]}>Gross Profit from Sales</Text>
+                    <Text style={[theme.typography.bodyMedium, { color: theme.colors.tertiaryContainer, fontWeight: '700' }]}>+₱{periodProfit.toFixed(2)}</Text>
+                  </View>
+                  <View style={styles.calcRow}>
+                    <Text style={[theme.typography.bodyMedium, { color: theme.colors.onSurfaceVariant }]}>Total Expenses</Text>
+                    <Text style={[theme.typography.bodyMedium, { color: theme.colors.error, fontWeight: '700' }]}>-₱{periodExpTotal.toFixed(2)}</Text>
+                  </View>
+                  
+                  <View style={[styles.hDivider, { backgroundColor: theme.colors.outlineVariant, opacity: 0.3 }]} />
+                  
+                  <View style={styles.calcRow}>
+                    <Text style={[theme.typography.titleMedium, { color: theme.colors.onSurface, fontWeight: '700' }]}>Net Profit</Text>
+                    <Text style={[theme.typography.titleMedium, { color: periodNet >= 0 ? theme.colors.tertiaryContainer : theme.colors.error, fontWeight: '800' }]}>
+                      ₱{periodNet.toFixed(2)}
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Granular Insights */}
+                <View style={[styles.insightsGrid, { borderColor: theme.colors.outlineVariant }]}>
+                  <View style={styles.insightItem}>
+                    <MaterialIcons name="trending-up" size={16} color={theme.colors.tertiaryContainer} />
+                    <Text style={[theme.typography.labelSmall, { color: theme.colors.onSurfaceVariant, marginTop: 4 }]}>BEST PERFORMING DAY</Text>
+                    <Text style={[theme.typography.bodyMedium, { color: theme.colors.onSurface, fontWeight: '700' }]}>
+                      {bestDay.date ? fmtDate(bestDay.date).split(',')[0] : 'N/A'}
+                    </Text>
+                    <Text style={[theme.typography.labelSmall, { color: theme.colors.tertiaryContainer }]}>+₱{bestDay.profit > 0 ? bestDay.profit.toFixed(2) : '0.00'}</Text>
+                  </View>
+                  
+                  <View style={[styles.vDivider, { backgroundColor: theme.colors.outlineVariant }]} />
+                  
+                  <View style={styles.insightItem}>
+                    <MaterialIcons name="payments" size={16} color={theme.colors.error} />
+                    <Text style={[theme.typography.labelSmall, { color: theme.colors.onSurfaceVariant, marginTop: 4 }]}>BIGGEST EXPENSE</Text>
+                    <Text style={[theme.typography.bodyMedium, { color: theme.colors.onSurface, fontWeight: '700' }]} numberOfLines={1}>
+                      {biggestExp ? biggestExp.name : 'N/A'}
+                    </Text>
+                    <Text style={[theme.typography.labelSmall, { color: theme.colors.error }]}>-₱{biggestExp ? biggestExp.amount.toFixed(2) : '0.00'}</Text>
+                  </View>
+                </View>
+
+                <View style={styles.marginSection}>
+                  <View style={styles.row}>
+                    <Text style={[theme.typography.labelMedium, { color: theme.colors.onSurfaceVariant }]}>Gross Profit Margin</Text>
+                    <Text style={[theme.typography.labelMedium, { color: theme.colors.onSurface, fontWeight: '700' }]}>{profitMargin.toFixed(1)}%</Text>
+                  </View>
+                  <View style={[styles.progressBarBase, { backgroundColor: theme.colors.surfaceContainerHighest }]}>
+                    <View style={[styles.progressBarFill, { width: `${Math.min(profitMargin, 100)}%`, backgroundColor: theme.colors.primary }]} />
+                  </View>
+                </View>
+
+                <View style={[styles.explanationCard, { backgroundColor: periodNet >= 0 ? `${theme.colors.tertiaryFixed}30` : `${theme.colors.errorContainer}40` }]}>
+                  <View style={[styles.statusIndicator, { backgroundColor: periodNet >= 0 ? theme.colors.tertiaryContainer : theme.colors.error }]} />
+                  <View style={{ flex: 1, marginLeft: 12 }}>
+                    <Text style={[theme.typography.bodySmall, { color: theme.colors.onSurface, fontWeight: '700', letterSpacing: 0.5 }]}>
+                      {periodNet >= 0 ? 'POSITIVE TREND' : 'ATTENTION NEEDED'}
+                    </Text>
+                    <Text style={[theme.typography.bodySmall, { color: theme.colors.onSurfaceVariant, marginTop: 2, lineHeight: 18 }]}>
+                      {periodNet >= 0 
+                        ? `Net profit of ₱${periodNet.toFixed(2)} after all expenses. Keep it up!`
+                        : `Net loss of ₱${Math.abs(periodNet).toFixed(2)}. Review your expenses.`}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            )}
           </View>
 
           <View style={styles.sectionRow}>
@@ -262,7 +474,7 @@ export default function FinancialHubScreen() {
               </Text>
             </View>
           ) : (
-            sales.slice(0, 5).map(sale => (
+            sales.slice(0, 5).map((sale: Sale) => (
               <TouchableOpacity
                 key={sale.sale_id}
                 style={[styles.row, { backgroundColor: theme.colors.surface, borderColor: theme.colors.surfaceContainerLow }]}
@@ -273,7 +485,11 @@ export default function FinancialHubScreen() {
                   <MaterialIcons name="storefront" size={22} color={theme.colors.tertiaryContainer} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={[theme.typography.button, { color: theme.colors.onSurface }]}>End-of-Day Sale</Text>
+                  <Text style={[theme.typography.button, { color: theme.colors.onSurface }]}>
+                    End-of-Day Sale {sale.sale_id.startsWith('temp_') && (
+                      <MaterialIcons name="cloud-upload" size={14} color={theme.colors.outline} />
+                    )}
+                  </Text>
                   <Text style={[theme.typography.labelMedium, { color: theme.colors.outline }]}>{fmtDate(sale.date)}</Text>
                 </View>
                 <View style={{ alignItems: 'flex-end' }}>
@@ -306,13 +522,17 @@ export default function FinancialHubScreen() {
               </Text>
             </View>
           ) : (
-            expenses.map(exp => (
+            expenses.map((exp: Expense) => (
               <View key={exp.expense_id} style={[styles.row, { backgroundColor: theme.colors.surface, borderColor: theme.colors.surfaceContainerLow }]}>
                 <View style={[styles.rowIcon, { backgroundColor: `${theme.colors.errorContainer}99` }]}>
                   <MaterialIcons name="receipt" size={22} color={theme.colors.onErrorContainer} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={[theme.typography.button, { color: theme.colors.onSurface }]}>{exp.name}</Text>
+                  <Text style={[theme.typography.button, { color: theme.colors.onSurface }]}>
+                    {exp.name} {exp.expense_id.startsWith('temp_') && (
+                      <MaterialIcons name="cloud-upload" size={14} color={theme.colors.outline} />
+                    )}
+                  </Text>
                   <Text style={[theme.typography.labelMedium, { color: theme.colors.outline }]}>{fmtDate(exp.date)}</Text>
                 </View>
                 <Text style={[theme.typography.button, { color: theme.colors.error, marginRight: 12 }]}>-₱{exp.amount.toFixed(2)}</Text>
@@ -517,5 +737,125 @@ const styles = StyleSheet.create({
     minWidth: '45%',
     padding: 12,
     borderRadius: theme.borderRadius.lg,
+  },
+  premiumTrigger: {
+    backgroundColor: theme.colors.surfaceContainerLow,
+    borderRadius: 20,
+    padding: 16,
+    marginTop: 20,
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceVariant,
+  },
+  triggerContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  iconCircle: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  premiumPrompt: {
+    backgroundColor: theme.colors.surfaceContainerHighest,
+    borderRadius: 20,
+    padding: 20,
+    marginTop: 20,
+    borderWidth: 1,
+    borderColor: theme.colors.primaryContainer,
+  },
+  promptActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  promptPill: {
+    flex: 1,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  premiumCalculation: {
+    marginTop: 20,
+    padding: 20,
+    borderRadius: 24,
+    backgroundColor: theme.colors.surfaceContainerLow,
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceVariant,
+  },
+  calcHeaderTitle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  calcCloseBtn: {
+    padding: 4,
+  },
+  calcList: {
+    marginVertical: 16,
+    gap: 12,
+  },
+  statusIndicator: {
+    width: 4,
+    height: '100%',
+    borderRadius: 2,
+  },
+  insightsGrid: {
+    flexDirection: 'row',
+    paddingVertical: 16,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    marginVertical: 12,
+  },
+  insightItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  vDivider: {
+    width: 1,
+    height: '100%',
+    opacity: 0.3,
+  },
+  marginSection: {
+    marginBottom: 20,
+  },
+  progressBarBase: {
+    height: 6,
+    borderRadius: 3,
+    marginTop: 8,
+    overflow: 'hidden',
+  },
+  progressBarFill: {
+    height: '100%',
+    borderRadius: 3,
+  },
+  calculationBox: {
+    marginTop: 16,
+    padding: 16,
+    borderRadius: 12,
+    gap: 12,
+  },
+  calcHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  calcRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  hDivider: {
+    height: 1,
+    width: '100%',
+    marginVertical: 4,
+  },
+  explanationCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 4,
   },
 });

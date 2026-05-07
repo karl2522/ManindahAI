@@ -87,9 +87,9 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace 'com.manindahai.app'
+    namespace 'com.mikhailag0ny.manindahai'
     defaultConfig {
-        applicationId 'com.manindahai.app'
+        applicationId 'com.mikhailag0ny.manindahai'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1

@@ -1,12 +1,17 @@
-import { useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert, Platform, Image, ScrollView } from 'react-native';
+import { useEffect, useMemo, useState, useCallback } from 'react';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert, Platform, Image, ScrollView, Modal, ActivityIndicator, Switch } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
 import { Stack, useRouter } from 'expo-router';
+import { useNavigation } from '@react-navigation/native';
 import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
+import { useQueryClient } from '@tanstack/react-query';
 import { theme } from '../../src/theme/theme';
 import { useStore } from '../../src/hooks/useStore';
 import { StoreService } from '../../src/services/store';
+import { UserService } from '../../src/services/user';
 import { supabase } from '../../src/lib/supabase';
+import { auth } from '../../src/lib/firebase';
 
 type MapPoint = { latitude: number; longitude: number };
 
@@ -19,8 +24,11 @@ const WebViewComponent = Platform.OS === 'web'
 
 export default function StoreSetupScreen() {
   const router = useRouter();
-  const { userId, setStore } = useStore();
+  const navigation = useNavigation();
+  const { userId, profile, loading: storeLoading, isFetching, error: storeError } = useStore();
+  const queryClient = useQueryClient();
   const [storeName, setStoreName] = useState('');
+  const [ownerName, setOwnerName] = useState('');
   const [address, setAddress] = useState('');
   const [contactNumber, setContactNumber] = useState('');
   const [openTime, setOpenTime] = useState('');
@@ -33,9 +41,16 @@ export default function StoreSetupScreen() {
   const [locationError, setLocationError] = useState<string | null>(null);
   const [imageAsset, setImageAsset] = useState<ImagePicker.ImagePickerAsset | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [showMapModal, setShowMapModal] = useState(false);
+  const [tempMarkerPosition, setTempMarkerPosition] = useState<MapPoint | null>(null);
+  const [showTimePicker, setShowTimePicker] = useState<'open' | 'close' | null>(null);
+  const [autoClose, setAutoClose] = useState(false);
+  const [isFinalizing, setIsFinalizing] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const isValidPhilippineNumber = (value: string) => {
     const normalized = value.replace(/[\s-]/g, '');
-    return /^(\+63|0)9\d{9}$/.test(normalized);
+    // Strictly enforce standard 11-digit PH mobile format starting with 09
+    return /^09\d{9}$/.test(normalized);
   };
 
   const handlePickImage = async () => {
@@ -92,6 +107,13 @@ export default function StoreSetupScreen() {
     resolveLocation();
   }, []);
 
+  // Sync profile name to ownerName state when loaded
+  useEffect(() => {
+    if (profile?.name && !ownerName) {
+      setOwnerName(profile.name);
+    }
+  }, [profile?.name]);
+
   const selectedPoint = markerPosition ?? mapCenter;
   const selectedCoordinates = useMemo(() => selectedPoint, [selectedPoint]);
 
@@ -100,79 +122,167 @@ export default function StoreSetupScreen() {
     setMapCenter(point);
     const resolved = await reverseGeocode(point);
     if (resolved) setAddress(resolved);
+    setShowMapModal(false);
+  };
+
+  const handleTimeSelect = (hour: number, ampm: string) => {
+    const timeStr = `${hour}:00 ${ampm}`;
+    if (showTimePicker === 'open') setOpenTime(timeStr);
+    else if (showTimePicker === 'close') setCloseTime(timeStr);
+    setShowTimePicker(null);
   };
 
   const handleUseCurrentLocation = async () => {
     setLocationLoading(true);
     try {
-      const current = await Location.getCurrentPositionAsync({});
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Denied', 'Please allow location access to use this feature.');
+        return;
+      }
+
+      const current = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.High,
+      });
       const next = {
         latitude: current.coords.latitude,
         longitude: current.coords.longitude,
       };
       setMapCenter(next);
-      setMarkerPosition(next);
-      const resolved = await reverseGeocode(next);
-      if (resolved) setAddress(resolved);
+      setTempMarkerPosition(next);
+      if (!showMapModal) {
+        setMarkerPosition(next);
+        const resolved = await reverseGeocode(next);
+        if (resolved) setAddress(resolved);
+      }
     } catch (e: any) {
-      Alert.alert('Location Error', 'Unable to access your location right now.');
+      Alert.alert('Location Error', 'Unable to access your location right now. Please try again.');
     } finally {
       setLocationLoading(false);
     }
   };
 
-  const handleFindOnMap = async () => {
-    if (!address.trim()) {
-      Alert.alert('Address Required', 'Enter a store address to locate it on the map.');
-      return;
-    }
-    setGeocoding(true);
+  const handleOpenPinLocation = () => {
+    console.log('[StoreSetup] Opening pin location modal');
+    setTempMarkerPosition(markerPosition || mapCenter);
+    setShowMapModal(true);
+  };
+
+  const handlePreSave = async () => {
+    if (!userId || !storeName.trim()) return;
+    
     try {
-      const result = await geocodeAddress(address.trim());
-      if (!result) {
-        Alert.alert('Not Found', 'We could not find that address. Try a nearby landmark.');
-        return;
-      }
-      setMapCenter(result);
-      setMarkerPosition(result);
-    } catch (e: any) {
-      Alert.alert('Geocoding Error', 'Unable to locate the address right now.');
-    } finally {
-      setGeocoding(false);
+      console.log('[StoreSetup] Pre-saving draft...');
+      const store = await StoreService.create(userId, storeName.trim());
+      
+      const draftPayload = {
+        address: address.trim() || null,
+        contact_number: contactNumber.trim() || null,
+        latitude: markerPosition?.latitude || null,
+        longitude: markerPosition?.longitude || null,
+        open_time: openTime || null,
+        close_time: closeTime || null,
+        auto_close: autoClose,
+      };
+      
+      await StoreService.update(store.store_id, draftPayload);
+      console.log('[StoreSetup] Draft saved successfully');
+    } catch (e) {
+      console.warn('[StoreSetup] Pre-save failed:', e);
     }
   };
 
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('beforeRemove', (e) => {
+      // Don't intercept if we're already navigating away after a full success
+      // or if there's nothing to save
+      if (saving || isFinalizing || !storeName.trim()) {
+        return;
+      }
+
+      e.preventDefault();
+
+      Alert.alert(
+        'Save Progress?',
+        'You have unsaved changes. Would you like to save your progress as a draft before leaving?',
+        [
+          { 
+            text: 'Discard', 
+            style: 'destructive', 
+            onPress: () => navigation.dispatch(e.data.action) 
+          },
+          { 
+            text: 'Save & Exit', 
+            onPress: async () => {
+              await handlePreSave();
+              navigation.dispatch(e.data.action);
+            } 
+          },
+          { 
+            text: 'Cancel', 
+            style: 'cancel', 
+            onPress: () => {} 
+          },
+        ]
+      );
+    });
+
+    return unsubscribe;
+  }, [navigation, saving, storeName, address, contactNumber, markerPosition, openTime, closeTime, autoClose]);
+
   const handleSubmit = async () => {
+    if (saving || uploadingImage) return;
+    
     if (!userId) {
       Alert.alert('Error', 'You must be logged in to create a store.');
       return;
     }
-    if (!storeName.trim()) {
-      Alert.alert('Validation', 'Sari-Sari Store Name is required.');
-      return;
-    }
-    if (!address.trim()) {
-      Alert.alert('Validation', 'Store address is required.');
-      return;
-    }
+
+    const newErrors: Record<string, string> = {};
+    if (!storeName.trim()) newErrors.storeName = 'Store name is required';
+    if (!ownerName.trim()) newErrors.ownerName = 'Owner name is required';
+    if (!address.trim()) newErrors.address = 'Store address is required';
     if (!contactNumber.trim()) {
-      Alert.alert('Validation', 'Contact number is required.');
-      return;
+      newErrors.contactNumber = 'Contact number is required';
+    } else if (!isValidPhilippineNumber(contactNumber.trim())) {
+      newErrors.contactNumber = 'Enter a valid PH mobile number';
     }
-    if (!isValidPhilippineNumber(contactNumber.trim())) {
-      Alert.alert('Validation', 'Enter a valid PH mobile number (e.g. 09XXXXXXXXX or +639XXXXXXXXX).');
-      return;
-    }
-    if (!openTime.trim() || !closeTime.trim()) {
-      Alert.alert('Validation', 'Open and close time are required.');
+    if (!openTime.trim()) newErrors.openTime = 'Open time is required';
+    if (!closeTime.trim()) newErrors.closeTime = 'Close time is required';
+    if (!markerPosition) newErrors.location = 'Please pin your store location on the map';
+
+    setErrors(newErrors);
+
+    if (Object.keys(newErrors).length > 0) {
+      console.log('[StoreSetup] Validation failed:', newErrors);
+      Alert.alert('Validation', 'Please fill in all required fields and correct the highlighted areas.');
       return;
     }
 
+    const payload = {
+      store_name: storeName.trim(),
+      address: address.trim(),
+      contact_number: contactNumber.trim(),
+      open_time: openTime.trim(),
+      close_time: closeTime.trim(),
+      auto_close: autoClose,
+      latitude: markerPosition?.latitude || null,
+      longitude: markerPosition?.longitude || null,
+    };
+
+    setIsFinalizing(false);
     setSaving(true);
     try {
-      const created = await StoreService.create(userId, storeName.trim());
+      console.log('[StoreSetup] Creating store in DB...');
+      const newStore = await StoreService.create(userId, storeName.trim());
+      console.log('[StoreSetup] Store created successfully:', newStore.store_id);
+      
+      await queryClient.invalidateQueries({ queryKey: ['store'] });
+      await queryClient.invalidateQueries({ queryKey: ['profile'] });
+      
       let uploadedImageUrl: string | null = null;
       if (imageAsset?.uri) {
+        console.log('[StoreSetup] Starting image upload...');
         setUploadingImage(true);
         try {
           const response = await fetch(imageAsset.uri);
@@ -181,7 +291,7 @@ export default function StoreSetupScreen() {
           const fileExt = imageAsset.fileName?.split('.').pop()
             || imageAsset.mimeType?.split('/')[1]
             || 'jpg';
-          const filePath = `${created.store_id}/${Date.now()}.${fileExt}`;
+          const filePath = `${newStore.store_id}/${Date.now()}.${fileExt}`;
 
           const { error: uploadError } = await supabase
             .storage
@@ -198,7 +308,9 @@ export default function StoreSetupScreen() {
             .from('store-images')
             .getPublicUrl(filePath);
           uploadedImageUrl = publicData?.publicUrl ?? null;
+          console.log('[StoreSetup] Image uploaded successfully:', uploadedImageUrl);
         } catch (uploadError: any) {
+          console.warn('[StoreSetup] Image upload failed:', uploadError);
           Alert.alert('Image Upload Failed', 'Store created without a photo. You can add it later.');
         } finally {
           setUploadingImage(false);
@@ -208,22 +320,74 @@ export default function StoreSetupScreen() {
       const updatePayload = {
         address: address.trim() || null,
         contact_number: contactNumber.trim() || null,
-        latitude: selectedCoordinates ? selectedCoordinates.latitude : null,
-        longitude: selectedCoordinates ? selectedCoordinates.longitude : null,
+        latitude: markerPosition ? markerPosition.latitude : null,
+        longitude: markerPosition ? markerPosition.longitude : null,
         image_url: uploadedImageUrl,
         open_time: openTime.trim() || null,
         close_time: closeTime.trim() || null,
+        auto_close: autoClose,
       };
-      const updated = await StoreService.update(created.store_id, updatePayload);
-      setStore(updated);
+      const updated = await StoreService.update(newStore.store_id, updatePayload);
+      console.log('[StoreSetup] Store details updated');
+      
+      // Update user profile name if changed or provided
+      if (ownerName.trim() && ownerName !== profile?.name) {
+        console.log('[StoreSetup] Updating user profile name...');
+        await UserService.update(userId!, { name: ownerName.trim() });
+      }
+
+      // Update user role to 'owner'
+      console.log('[StoreSetup] Updating user role to owner...');
+      await UserService.addRole(userId!, 'owner');
+      
+      // Manually update the cache to ensure immediate UI transition to 'owner' role
+      const firebaseUid = auth.currentUser?.uid;
+      if (firebaseUid) {
+        queryClient.setQueryData(['profile', firebaseUid], (old: any) => {
+          if (!old) return old;
+          const currentRoles = old.roles || [];
+          // Replace 'customer' with 'owner' for a cleaner role transition
+          const newRoles = currentRoles.filter((r: string) => r !== 'customer');
+          if (!newRoles.includes('owner')) newRoles.push('owner');
+          return {
+            ...old,
+            roles: newRoles
+          };
+        });
+      }
+      
+      queryClient.setQueryData(['store', userId], updated);
+
+      // CRITICAL: Refetch and wait to ensure the navigation guard in _layout.tsx sees the 'owner' role
+      console.log('[StoreSetup] Refetching profile for role sync...');
+      await queryClient.refetchQueries({ queryKey: ['profile', auth.currentUser?.uid] });
+      
+      // Give a small grace period for the global state to propagate
+      console.log('[StoreSetup] Final sync grace period...');
+      await new Promise(resolve => setTimeout(resolve, 800));
+      
+      setIsFinalizing(true);
+      console.log('[StoreSetup] Navigating to dashboard...');
       router.replace('/(tabs)');
     } catch (e: any) {
-      Alert.alert('Error', e.message);
+      console.error('[StoreSetup] Submission failed:', e);
+      // Log full error object for remote debugging if needed
+      const errorDetail = e.message || JSON.stringify(e);
+      Alert.alert('Store Launch Failed', `Error: ${errorDetail}`);
     } finally {
       setSaving(false);
       setUploadingImage(false);
     }
   };
+
+  if (storeLoading) {
+    return (
+      <View style={[styles.container, { backgroundColor: theme.colors.background, justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="large" color={theme.colors.primaryContainer} />
+        <Text style={[theme.typography.bodyMedium, { marginTop: 16, color: theme.colors.outline }]}>Loading your profile...</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}> 
@@ -239,37 +403,81 @@ export default function StoreSetupScreen() {
         <Text style={styles.progressText}>50% complete</Text>
 
         <View style={styles.formGroup}>
-          <Text style={styles.label}>Sari-Sari Store Name</Text>
+          <Text style={styles.label}>Owner Full Name *</Text>
           <TextInput
-            style={styles.input}
+            style={[styles.input, errors.ownerName && styles.inputError]}
+            placeholder="Your full name"
+            value={ownerName}
+            onChangeText={(t) => {
+              setOwnerName(t);
+              if (errors.ownerName) setErrors(prev => ({ ...prev, ownerName: '' }));
+            }}
+          />
+          {errors.ownerName ? <Text style={styles.errorText}>{errors.ownerName}</Text> : null}
+        </View>
+
+        <View style={styles.formGroup}>
+          <Text style={styles.label}>Sari-Sari Store Name *</Text>
+          <TextInput
+            style={[styles.input, errors.storeName && styles.inputError]}
             placeholder="Store name"
             value={storeName}
-            onChangeText={setStoreName}
+            onChangeText={(t) => {
+              setStoreName(t);
+              if (errors.storeName) setErrors(prev => ({ ...prev, storeName: '' }));
+            }}
           />
+          {errors.storeName ? <Text style={styles.errorText}>{errors.storeName}</Text> : null}
         </View>
 
         <View style={styles.formGroup}>
-          <Text style={styles.label}>Store Address</Text>
+          <Text style={styles.label}>Store Address & Location *</Text>
           <TextInput
-            style={styles.input}
-            placeholder="Store address"
+            style={[styles.input, { height: 60, textAlignVertical: 'top', paddingTop: 12 }, errors.address && styles.inputError]}
+            placeholder="Store physical address"
             value={address}
-            onChangeText={setAddress}
+            onChangeText={(t) => {
+              setAddress(t);
+              if (errors.address) setErrors(prev => ({ ...prev, address: '' }));
+            }}
+            multiline
           />
-          <TouchableOpacity style={styles.secondaryButton} onPress={handleFindOnMap} disabled={geocoding}>
-            <Text style={styles.secondaryButtonText}>{geocoding ? 'Finding...' : 'Find on Map'}</Text>
+          {errors.address ? <Text style={styles.errorText}>{errors.address}</Text> : null}
+          
+          <TouchableOpacity 
+            style={[styles.pinButton, errors.location && styles.inputError]} 
+            onPress={handleOpenPinLocation}
+          >
+            <MaterialIcons name="location-on" size={20} color={theme.colors.onSecondaryContainer} />
+            <Text style={styles.pinButtonText}>
+              {markerPosition ? 'Relocate Store Pin' : 'Pin Store Location'}
+            </Text>
           </TouchableOpacity>
+          {errors.location ? <Text style={styles.errorText}>{errors.location}</Text> : null}
+          
+          {markerPosition && (
+            <Text style={styles.locationSuccessText}>
+              <MaterialIcons name="check-circle" size={14} color={theme.colors.secondary} /> Location Pinned
+            </Text>
+          )}
         </View>
 
         <View style={styles.formGroup}>
-          <Text style={styles.label}>Contact Number</Text>
+          <Text style={styles.label}>Contact Number *</Text>
           <TextInput
-            style={styles.input}
+            style={[styles.input, errors.contactNumber && styles.inputError]}
             placeholder="09XXXXXXXXX"
             value={contactNumber}
-            onChangeText={setContactNumber}
+            onChangeText={(t) => {
+              // Only allow digits and limit to 11 (standard PH mobile)
+              const cleaned = t.replace(/[^0-9]/g, '').slice(0, 11);
+              setContactNumber(cleaned);
+              if (errors.contactNumber) setErrors(prev => ({ ...prev, contactNumber: '' }));
+            }}
             keyboardType="phone-pad"
+            maxLength={11}
           />
+          {errors.contactNumber ? <Text style={styles.errorText}>{errors.contactNumber}</Text> : null}
         </View>
 
         <View style={styles.formGroup}>
@@ -288,59 +496,199 @@ export default function StoreSetupScreen() {
 
         <View style={styles.formRow}>
           <View style={styles.formGroupHalf}>
-            <Text style={styles.label}>Open Time</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="09:00 AM"
-              value={openTime}
-              onChangeText={setOpenTime}
-            />
+            <Text style={styles.label}>Open Time *</Text>
+            <TouchableOpacity 
+              style={[styles.timePickerInput, errors.openTime && styles.inputError]} 
+              onPress={() => {
+                setShowTimePicker('open');
+                if (errors.openTime) setErrors(prev => ({ ...prev, openTime: '' }));
+              }}
+            >
+              <Text style={styles.timePickerText}>{openTime || "08:00 AM"}</Text>
+              <MaterialIcons name="expand-more" size={20} color={theme.colors.outline} />
+            </TouchableOpacity>
+            {errors.openTime ? <Text style={styles.errorText}>{errors.openTime}</Text> : null}
           </View>
           <View style={styles.formGroupHalf}>
-            <Text style={styles.label}>Close Time</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="09:00 PM"
-              value={closeTime}
-              onChangeText={setCloseTime}
-            />
+            <Text style={styles.label}>Close Time *</Text>
+            <TouchableOpacity 
+              style={[styles.timePickerInput, errors.closeTime && styles.inputError]} 
+              onPress={() => {
+                setShowTimePicker('close');
+                if (errors.closeTime) setErrors(prev => ({ ...prev, closeTime: '' }));
+              }}
+            >
+              <Text style={styles.timePickerText}>{closeTime || "10:00 PM"}</Text>
+              <MaterialIcons name="expand-more" size={20} color={theme.colors.outline} />
+            </TouchableOpacity>
+            {errors.closeTime ? <Text style={styles.errorText}>{errors.closeTime}</Text> : null}
           </View>
+        </View>
+
+        <View style={styles.toggleRow}>
+          <View style={styles.toggleText}>
+            <Text style={styles.label}>Automatic Close</Text>
+            <Text style={styles.toggleSubtitle}>Auto-set store to offline after hours</Text>
+          </View>
+          <Switch
+            value={autoClose}
+            onValueChange={setAutoClose}
+            trackColor={{ false: theme.colors.surfaceVariant, true: theme.colors.primary }}
+            thumbColor={Platform.OS === 'ios' ? '#fff' : (autoClose ? theme.colors.surface : theme.colors.outline)}
+          />
         </View>
 
         {locationError && <Text style={styles.helperText}>{locationError}</Text>}
 
-        <View style={styles.mapSection}>
-          <Text style={styles.label}>Pin your store on the map</Text>
-          <View style={styles.mapCard}>
-            <View style={styles.mapFrame}>
-              {Platform.OS === 'web' ? (
-                <LeafletWebPicker
-                  center={mapCenter}
-                  marker={selectedPoint}
-                  onSelect={handleMapSelect}
-                />
-              ) : (
-                <LeafletNativePicker
-                  WebViewComponent={WebViewComponent}
-                  center={mapCenter}
-                  marker={selectedPoint}
-                  onSelect={handleMapSelect}
-                />
-              )}
-            </View>
-            <View style={styles.mapActionsRow}>
-              <TouchableOpacity style={styles.secondaryButton} onPress={handleUseCurrentLocation} disabled={locationLoading}>
-                <Text style={styles.secondaryButtonText}>{locationLoading ? 'Locating...' : 'Use Current Location'}</Text>
-              </TouchableOpacity>
+        {markerPosition && (
+          <View style={styles.mapPreviewSection}>
+            <Text style={styles.label}>Location Preview</Text>
+            <View style={styles.mapPreviewContainer}>
+              <MapPreview latitude={markerPosition.latitude} longitude={markerPosition.longitude} />
             </View>
           </View>
-        </View>
+        )}
 
         <TouchableOpacity style={styles.ctaButton} onPress={handleSubmit} disabled={saving || uploadingImage}>
           <Text style={styles.ctaText}>{saving || uploadingImage ? 'Creating...' : 'Launch Store Dashboard'}</Text>
         </TouchableOpacity>
       </ScrollView>
+
+      {/* Map Pinning Modal */}
+      <Modal visible={showMapModal} animationType="slide" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Pin Store Location</Text>
+              <TouchableOpacity onPress={() => setShowMapModal(false)}>
+                <MaterialIcons name="close" size={24} color={theme.colors.outline} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.modalMapFrame}>
+              {Platform.OS === 'web' ? (
+                <LeafletWebPicker
+                  center={mapCenter}
+                  marker={tempMarkerPosition || mapCenter}
+                  onSelect={setTempMarkerPosition}
+                />
+              ) : (
+                <LeafletNativePicker
+                  WebViewComponent={WebViewComponent}
+                  center={mapCenter}
+                  marker={tempMarkerPosition || mapCenter}
+                  onSelect={setTempMarkerPosition}
+                />
+              )}
+            </View>
+
+            <View style={styles.modalFooter}>
+              <TouchableOpacity 
+                style={styles.currentLocationButton} 
+                onPress={handleUseCurrentLocation}
+                disabled={locationLoading}
+              >
+                {locationLoading ? (
+                  <ActivityIndicator size="small" color={theme.colors.primaryContainer} />
+                ) : (
+                  <MaterialIcons name="my-location" size={24} color={theme.colors.primaryContainer} />
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.confirmButton} 
+                onPress={() => tempMarkerPosition && handleMapSelect(tempMarkerPosition)}
+              >
+                <Text style={styles.confirmButtonText}>Confirm Location</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Custom Time Selection Modal */}
+      <Modal
+        visible={!!showTimePicker}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setShowTimePicker(null)}
+      >
+        <TouchableOpacity 
+          style={styles.timeModalOverlay} 
+          activeOpacity={1} 
+          onPress={() => setShowTimePicker(null)}
+        >
+          <View style={styles.timeModalContent}>
+            <Text style={styles.timeModalTitle}>Select {showTimePicker === 'open' ? 'Opening' : 'Closing'} Hour</Text>
+            <ScrollView style={styles.timeList} showsVerticalScrollIndicator={false}>
+              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(h => (
+                <View key={h} style={styles.timeRow}>
+                  <TouchableOpacity style={styles.timeOption} onPress={() => handleTimeSelect(h, 'AM')}>
+                    <Text style={styles.timeOptionText}>{h}:00 AM</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={styles.timeOption} onPress={() => handleTimeSelect(h, 'PM')}>
+                    <Text style={styles.timeOptionText}>{h}:00 PM</Text>
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </ScrollView>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </View>
+  );
+}
+
+function MapPreview({ latitude, longitude }: { latitude: number, longitude: number }) {
+  const html = `<!doctype html>
+  <html>
+    <head>
+      <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+      <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+      <style>
+        html, body, #map { height: 100%; margin: 0; background: #f8f9fa; }
+        .leaflet-control-attribution { display: none !important; }
+      </style>
+    </head>
+    <body>
+      <div id="map"></div>
+      <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+      <script>
+        const map = L.map('map', {
+          zoomControl: false,
+          dragging: false,
+          touchZoom: false,
+          doubleClickZoom: false,
+          scrollWheelZoom: false,
+          boxZoom: false,
+          keyboard: false
+        }).setView([${latitude}, ${longitude}], 16);
+        
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+        L.marker([${latitude}, ${longitude}]).addTo(map);
+      </script>
+    </body>
+  </html>`;
+
+  if (Platform.OS === 'web') {
+    return (
+      <iframe
+        srcDoc={html}
+        style={{ width: '100%', height: '100%', border: 'none', borderRadius: 16 }}
+        title="Store Map"
+      />
+    );
+  }
+
+  if (!WebViewComponent) return null;
+
+  return (
+    <WebViewComponent
+      originWhitelist={['*']}
+      source={{ html }}
+      style={{ flex: 1 }}
+      scrollEnabled={false}
+    />
   );
 }
 
@@ -401,6 +749,14 @@ function LeafletWebPicker({
     return null;
   };
 
+  const Recenter = ({ center }: { center: MapPoint }) => {
+    const map = require('react-leaflet').useMap();
+    useEffect(() => {
+      map.setView([center.latitude, center.longitude]);
+    }, [center]);
+    return null;
+  };
+
   return (
     <MapContainer center={[center.latitude, center.longitude]} zoom={16} style={styles.leafletMap}>
       <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
@@ -415,6 +771,7 @@ function LeafletWebPicker({
         }}
       />
       <ClickHandler />
+      <Recenter center={center} />
     </MapContainer>
   );
 }
@@ -567,27 +924,6 @@ const styles = StyleSheet.create({
     ...theme.typography.labelMedium,
     color: theme.colors.outline,
   },
-  mapSection: {
-    gap: 8,
-  },
-  mapCard: {
-    backgroundColor: theme.colors.surface,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: theme.colors.surfaceVariant,
-    overflow: 'hidden',
-  },
-  mapFrame: {
-    height: 220,
-    width: '100%',
-  },
-  leafletMap: {
-    width: '100%',
-    height: '100%',
-  },
-  mapActionsRow: {
-    padding: 12,
-  },
   ctaButton: {
     marginTop: 8,
     height: 48,
@@ -599,5 +935,187 @@ const styles = StyleSheet.create({
   ctaText: {
     ...theme.typography.button,
     color: theme.colors.onPrimary,
+  },
+  leafletMap: {
+    width: '100%',
+    height: '100%',
+  },
+  pinButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: theme.colors.secondaryContainer,
+    gap: 8,
+    borderWidth: 1,
+    borderColor: theme.colors.outlineVariant,
+  },
+  pinButtonText: {
+    ...theme.typography.button,
+    color: theme.colors.onSecondaryContainer,
+  },
+  locationSuccessText: {
+    ...theme.typography.labelMedium,
+    color: theme.colors.secondary,
+    textAlign: 'center',
+  },
+  mapPreviewSection: {
+    gap: 8,
+    marginTop: 8,
+  },
+  mapPreviewContainer: {
+    height: 180,
+    borderRadius: 16,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceVariant,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    height: '90%',
+    backgroundColor: theme.colors.background,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    overflow: 'hidden',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.colors.surfaceVariant,
+  },
+  modalTitle: {
+    ...theme.typography.h3,
+    color: theme.colors.onSurface,
+  },
+  modalMapFrame: {
+    flex: 1,
+  },
+  modalFooter: {
+    padding: 20,
+    flexDirection: 'row',
+    gap: 12,
+    backgroundColor: theme.colors.surface,
+    borderTopWidth: 1,
+    borderTopColor: theme.colors.surfaceVariant,
+  },
+  currentLocationButton: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: theme.colors.surfaceContainerHighest,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceVariant,
+  },
+  confirmButton: {
+    flex: 1,
+    height: 56,
+    borderRadius: 16,
+    backgroundColor: theme.colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  confirmButtonText: {
+    ...theme.typography.button,
+    color: theme.colors.onPrimary,
+  },
+  timePickerInput: {
+    height: 48,
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    backgroundColor: theme.colors.surface,
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceVariant,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  inputError: {
+    borderColor: theme.colors.error,
+    backgroundColor: theme.colors.errorContainer + '10', // Very light red tint
+  },
+  errorText: {
+    ...theme.typography.labelMedium,
+    color: theme.colors.error,
+    marginTop: -4,
+  },
+  timePickerText: {
+    ...theme.typography.bodyMedium,
+    color: theme.colors.onSurface,
+  },
+  toggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    backgroundColor: theme.colors.surfaceContainerLow,
+    paddingHorizontal: 16,
+    borderRadius: 16,
+  },
+  toggleText: {
+    flex: 1,
+    gap: 2,
+  },
+  toggleSubtitle: {
+    ...theme.typography.labelSmall,
+    color: theme.colors.outline,
+  },
+  timeModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  timeModalContent: {
+    width: '100%',
+    maxWidth: 340,
+    maxHeight: 400,
+    backgroundColor: theme.colors.surface,
+    borderRadius: 24,
+    padding: 20,
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+  },
+  timeModalTitle: {
+    ...theme.typography.h3,
+    color: theme.colors.primary,
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  timeList: {
+    width: '100%',
+  },
+  timeRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 12,
+  },
+  timeOption: {
+    flex: 1,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: theme.colors.surfaceContainerLow,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceVariant,
+  },
+  timeOptionText: {
+    ...theme.typography.bodyMedium,
+    color: theme.colors.onSurface,
+    fontWeight: '600',
   },
 });

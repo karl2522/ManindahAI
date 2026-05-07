@@ -109,11 +109,23 @@ export const theme = {
       fontWeight: '500' as const,
       letterSpacing: 0.15,
     },
+    bodySmall: {
+      fontSize: 12,
+      lineHeight: 16,
+      fontWeight: '400' as const,
+      letterSpacing: 0,
+    },
     labelSmall: {
       fontSize: 11,
       lineHeight: 16,
       fontWeight: '500' as const,
       letterSpacing: 0.5,
+    },
+    labelLarge: {
+      fontSize: 14,
+      lineHeight: 20,
+      fontWeight: '500' as const,
+      letterSpacing: 0.1,
     },
   },
 };

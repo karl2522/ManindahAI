@@ -12,14 +12,16 @@ export type Store = {
   latitude: number | null;
   longitude: number | null;
   image_url: string | null;
+  description: string | null;
   open_time: string | null;
   close_time: string | null;
+  auto_close: boolean;
   status: StoreStatus;
   created_at: string;
   updated_at: string;
 };
 
-export type UpdateStoreInput = Partial<Pick<Store, 'store_name' | 'address' | 'contact_number' | 'latitude' | 'longitude' | 'image_url' | 'open_time' | 'close_time' | 'status'>>;
+export type UpdateStoreInput = Partial<Pick<Store, 'store_name' | 'address' | 'contact_number' | 'latitude' | 'longitude' | 'image_url' | 'description' | 'open_time' | 'close_time' | 'auto_close' | 'status'>>;
 
 export const StoreService = {
   /**
@@ -43,8 +45,17 @@ export const StoreService = {
 
   /**
    * Create a new store for the given user_id.
+   * If a store already exists for this user, it returns the existing one.
    */
   async create(user_id: string, store_name: string): Promise<Store> {
+    // Check if store already exists first to prevent duplicate errors
+    const existing = await this.getByUserId(user_id);
+    if (existing) {
+      console.log(`[StoreService] User ${user_id} already has a store, returning existing.`);
+      await UserService.addRole(user_id, 'owner');
+      return existing;
+    }
+
     const { data, error } = await supabase
       .from('stores')
       .insert({ user_id, store_name })

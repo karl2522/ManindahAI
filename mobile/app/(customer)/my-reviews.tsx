@@ -35,7 +35,7 @@ export default function MyReviewsScreen() {
       <Stack.Screen options={{ title: 'My Reviews' }} />
 
       <View style={styles.summaryCard}>
-        <Text style={styles.summaryRating}>{summary.toFixed(1)}</Text>
+        <Text style={styles.summaryRating}>{(summary || 0).toFixed(1)}</Text>
         <Text style={styles.summarySub}>{reviews.length} reviews submitted</Text>
       </View>
 
@@ -67,7 +67,7 @@ function ReviewCard({ review, onPress }: { review: Review; onPress: () => void }
         <Text style={styles.reviewStore}>{review.store_name ?? 'Store'}</Text>
         <View style={styles.ratingRow}>
           <MaterialIcons name="star" size={14} color={theme.colors.secondary} />
-          <Text style={styles.ratingText}>{review.rating.toFixed(1)}</Text>
+          <Text style={styles.ratingText}>{(review.rating || 0).toFixed(1)}</Text>
         </View>
       </View>
       <Text style={styles.reviewDate}>{new Date(review.created_at).toLocaleDateString()}</Text>

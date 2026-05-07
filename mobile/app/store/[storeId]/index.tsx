@@ -1,19 +1,21 @@
-import { useEffect, useMemo, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, ActivityIndicator, Alert, TextInput } from 'react-native';
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, ActivityIndicator, Alert, TextInput, Modal, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { useFocusEffect } from '@react-navigation/native';
+import * as Location from 'expo-location';
 import { CustomerService } from '../../../src/services/customer';
 import { ProductService } from '../../../src/services/product';
 import { theme } from '../../../src/theme/theme';
 
 export default function StoreProfileScreen() {
   const router = useRouter();
-  const { storeId } = useLocalSearchParams<{ storeId: string }>();
+  const { storeId, isPreview } = useLocalSearchParams<{ storeId: string; isPreview?: string }>();
   const [isFavorite, setIsFavorite] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
   useEffect(() => {
     const loadFavorite = async () => {
@@ -44,14 +46,14 @@ export default function StoreProfileScreen() {
   });
 
   const categories = useMemo(() => {
-    const bucket = new Map<string, string[]>();
+    const bucket = new Map<string, typeof products>();
     const query = searchQuery.trim().toLowerCase();
 
     products.forEach((product) => {
       if (query && !product.name.toLowerCase().includes(query)) return;
       const key = product.category?.trim() || 'Essentials';
       if (!bucket.has(key)) bucket.set(key, []);
-      bucket.get(key)!.push(product.name);
+      bucket.get(key)!.push(product);
     });
 
     return Array.from(bucket.entries()).map(([category, items]) => ({ category, items }));
@@ -86,108 +88,184 @@ export default function StoreProfileScreen() {
       </View>
 
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
-
-      {store.image_url ? (
-        <Image source={{ uri: store.image_url }} style={styles.headerImage} />
-      ) : (
-        <View style={styles.headerPlaceholder}>
-          <MaterialIcons name="storefront" size={48} color={theme.colors.primaryContainer} />
-        </View>
-      )}
-
-      <View style={styles.content}>
-        <View style={styles.headerRow}>
-          <View style={styles.titleBlock}>
-            <Text style={styles.storeName}>{store.store_name}</Text>
-            <View style={styles.addressRow}>
-              <MaterialIcons name="place" size={16} color={theme.colors.outline} />
-              <Text style={styles.addressText}>{store.address ?? 'Address not set'}</Text>
-            </View>
+        {isPreview === 'true' && (
+          <View style={styles.previewBanner}>
+            <MaterialIcons name="visibility" size={16} color="#fff" />
+            <Text style={styles.previewText}>PREVIEW MODE: VIEWING AS CUSTOMER</Text>
           </View>
-          <View style={styles.headerActions}>
-            <TouchableOpacity style={styles.ratingBadge} onPress={() => router.push(`/store/${store.store_id}/reviews`)}>
-              <MaterialIcons name="star" size={16} color={theme.colors.secondary} />
-              <Text style={styles.ratingText}>{store.rating.toFixed(1)}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.favoriteButton}
-              onPress={async () => {
-                const raw = await AsyncStorage.getItem('customer:favorites');
-                const ids = raw ? JSON.parse(raw) : [];
-                const next = ids.includes(store.store_id)
-                  ? ids.filter((id: string) => id !== store.store_id)
-                  : [...ids, store.store_id];
-                await AsyncStorage.setItem('customer:favorites', JSON.stringify(next));
-                setIsFavorite(next.includes(store.store_id));
-              }}
-            >
-              <MaterialIcons
-                name={isFavorite ? 'favorite' : 'favorite-border'}
-                size={20}
-                color={isFavorite ? theme.colors.secondary : theme.colors.outline}
-              />
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        <View style={styles.actionRow}>
-          <TouchableOpacity style={styles.actionButton} onPress={() => Alert.alert('Call Store', 'Calling store...')}>
-            <MaterialIcons name="call" size={20} color={theme.colors.primaryContainer} />
-            <Text style={styles.actionText}>Call Store</Text>
+        )}
+        {store.image_url ? (
+          <TouchableOpacity 
+            activeOpacity={0.9} 
+            onPress={() => setSelectedImage(store.image_url!)}
+            disabled={isPreview === 'true'}
+          >
+            <Image source={{ uri: store.image_url }} style={styles.headerImage} />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.actionButton} onPress={() => Alert.alert('Message Store', 'Messaging store...')}>
-            <MaterialIcons name="chat" size={20} color={theme.colors.primaryContainer} />
-            <Text style={styles.actionText}>Message Store</Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Product Availability</Text>
-          <View style={styles.searchBar}>
-            <MaterialIcons name="search" size={18} color={theme.colors.outline} />
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Search products"
-              placeholderTextColor={theme.colors.outline}
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-            />
-          </View>
-        </View>
-
-        {categories.length === 0 ? (
-          <Text style={styles.emptyText}>No matching products found.</Text>
         ) : (
-          categories.map((category) => (
-            <View key={category.category} style={styles.categoryBlock}>
-              <Text style={styles.categoryTitle}>{category.category}</Text>
-              <View style={styles.chipWrap}>
-                {category.items.map((item) => (
-                  <View key={item} style={styles.chip}>
-                    <Text style={styles.chipText}>{item}</Text>
-                  </View>
-                ))}
+          <View style={styles.headerPlaceholder}>
+            <MaterialIcons name="storefront" size={48} color={theme.colors.primaryContainer} />
+          </View>
+        )}
+
+        <View style={styles.content}>
+          <View style={styles.headerRow}>
+            <View style={styles.titleBlock}>
+              <Text style={styles.storeName}>{store.store_name}</Text>
+              <View style={styles.addressRow}>
+                <MaterialIcons name="place" size={16} color={theme.colors.outline} />
+                <Text style={styles.addressText}>{store.address ?? 'Address not set'}</Text>
+              </View>
+              <View style={styles.addressRow}>
+                <MaterialIcons name="person" size={16} color={theme.colors.outline} />
+                <Text style={styles.addressText}>Owner: {store.owner_name ?? 'Community Member'}</Text>
               </View>
             </View>
-          ))
-        )}
-      </View>
-    </ScrollView>
+            <View style={styles.headerActions}>
+              <TouchableOpacity 
+                style={styles.ratingBadge} 
+                onPress={() => router.push(`/store/${store.store_id}/reviews`)}
+                disabled={isPreview === 'true'}
+              >
+                <MaterialIcons name="star" size={16} color={theme.colors.secondary} />
+                <Text style={styles.ratingText}>{(store.rating || 0).toFixed(1)}</Text>
+              </TouchableOpacity>
+            {isPreview !== 'true' && (
+              <TouchableOpacity
+                style={styles.favoriteButton}
+                onPress={async () => {
+                  const raw = await AsyncStorage.getItem('customer:favorites');
+                  const ids = raw ? JSON.parse(raw) : [];
+                  const next = ids.includes(store.store_id)
+                    ? ids.filter((id: string) => id !== store.store_id)
+                    : [...ids, store.store_id];
+                  await AsyncStorage.setItem('customer:favorites', JSON.stringify(next));
+                  setIsFavorite(next.includes(store.store_id));
+                }}
+              >
+                <MaterialIcons
+                  name={isFavorite ? 'favorite' : 'favorite-border'}
+                  size={20}
+                  color={isFavorite ? theme.colors.secondary : theme.colors.outline}
+                />
+              </TouchableOpacity>
+            )}
+            </View>
+          </View>
+
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Product Availability</Text>
+            <View style={styles.searchBar}>
+              <MaterialIcons name="search" size={18} color={theme.colors.outline} />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search products"
+                placeholderTextColor={theme.colors.outline}
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                editable={isPreview !== 'true'}
+              />
+            </View>
+          </View>
+
+          {categories.length === 0 ? (
+            <Text style={styles.emptyText}>No matching products found.</Text>
+          ) : (
+            categories.map((category) => (
+              <View key={category.category} style={styles.categoryBlock}>
+                <Text style={styles.categoryTitle}>{category.category}</Text>
+                <View style={styles.productGrid}>
+                  {category.items.map((item) => (
+                    <TouchableOpacity 
+                      key={item.product_id} 
+                      style={styles.productCard}
+                      onPress={() => item.image_url && setSelectedImage(item.image_url)}
+                      disabled={isPreview === 'true' || !item.image_url}
+                    >
+                      <View style={styles.productImageContainer}>
+                        {item.image_url ? (
+                          <Image source={{ uri: item.image_url }} style={styles.productImage} />
+                        ) : (
+                          <MaterialIcons name="inventory-2" size={24} color={theme.colors.outline} />
+                        )}
+                        {item.image_url && (
+                          <View style={styles.imageOverlay}>
+                            <MaterialIcons name="zoom-out-map" size={16} color="#fff" />
+                          </View>
+                        )}
+                      </View>
+                      
+                      <View style={styles.productInfo}>
+                        <Text style={styles.productName} numberOfLines={1}>{item.name}</Text>
+                        <View style={styles.priceBadge}>
+                          <MaterialIcons name="sell" size={12} color={theme.colors.onPrimaryContainer} />
+                          <Text style={styles.priceValue}>₱{item.selling_price.toFixed(2)}</Text>
+                        </View>
+                      </View>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            ))
+          )}
+        </View>
+      </ScrollView>
 
       <View style={styles.bottomNav}>
-        <TouchableOpacity style={styles.navItem} onPress={() => router.push('/(customer)')}>
-          <MaterialIcons name="map" size={22} color={theme.colors.primaryContainer} />
-          <Text style={styles.navLabelActive}>Explore</Text>
+        <TouchableOpacity 
+          style={styles.navItem} 
+          onPress={() => router.push('/(customer)')}
+          disabled={isPreview === 'true'}
+        >
+          <MaterialIcons name="map" size={22} color={isPreview === 'true' ? theme.colors.outline : theme.colors.primaryContainer} />
+          <Text style={isPreview === 'true' ? styles.navLabel : styles.navLabelActive}>Explore</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem} onPress={() => router.push('/(customer)/saved')}>
+        <TouchableOpacity 
+          style={styles.navItem} 
+          onPress={() => router.push('/(customer)/saved')}
+          disabled={isPreview === 'true'}
+        >
           <MaterialIcons name="favorite-border" size={22} color={theme.colors.outline} />
           <Text style={styles.navLabel}>Saved</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem} onPress={() => router.push('/(customer)/profile')}>
+        <TouchableOpacity 
+          style={styles.navItem} 
+          onPress={() => router.push('/(customer)/profile')}
+          disabled={isPreview === 'true'}
+        >
           <MaterialIcons name="person-outline" size={22} color={theme.colors.outline} />
           <Text style={styles.navLabel}>Profile</Text>
         </TouchableOpacity>
       </View>
+
+      <Modal
+        visible={!!selectedImage}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setSelectedImage(null)}
+      >
+        <TouchableOpacity 
+          style={styles.imageModalOverlay} 
+          activeOpacity={1} 
+          onPress={() => setSelectedImage(null)}
+        >
+          <View style={styles.imageModalContent}>
+            {selectedImage && (
+              <Image 
+                source={{ uri: selectedImage }} 
+                style={styles.fullImage} 
+                resizeMode="contain" 
+              />
+            )}
+            <TouchableOpacity 
+              style={styles.closeImageButton} 
+              onPress={() => setSelectedImage(null)}
+            >
+              <MaterialIcons name="close" size={24} color="#fff" />
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }
@@ -229,11 +307,11 @@ const styles = StyleSheet.create({
   },
   headerImage: {
     width: '100%',
-    height: 220,
+    height: 300,
   },
   headerPlaceholder: {
     width: '100%',
-    height: 220,
+    height: 300,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: theme.colors.surfaceContainerLow,
@@ -290,26 +368,6 @@ const styles = StyleSheet.create({
     ...theme.typography.button,
     color: theme.colors.onSurface,
   },
-  actionRow: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  actionButton: {
-    flex: 1,
-    borderRadius: 12,
-    height: 48,
-    backgroundColor: theme.colors.surface,
-    borderWidth: 1,
-    borderColor: theme.colors.surfaceVariant,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-  },
-  actionText: {
-    ...theme.typography.button,
-    color: theme.colors.primaryContainer,
-  },
   sectionHeader: {
     marginTop: 8,
     gap: 12,
@@ -338,30 +396,80 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.surface,
     borderRadius: 16,
     padding: 16,
-    gap: 12,
+    gap: 16,
     borderWidth: 1,
     borderColor: theme.colors.surfaceVariant,
   },
   categoryTitle: {
     ...theme.typography.button,
     color: theme.colors.onSurface,
+    fontSize: 16,
+    fontWeight: '700',
   },
-  chipWrap: {
+  productGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: 12,
   },
-  chip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    backgroundColor: theme.colors.surfaceContainerLow,
+  productCard: {
+    width: '48%',
+    backgroundColor: theme.colors.surface,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: theme.colors.surfaceVariant,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 3,
   },
-  chipText: {
+  productImageContainer: {
+    width: '100%',
+    height: 100,
+    backgroundColor: theme.colors.surfaceContainerLow,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  productImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  imageOverlay: {
+    position: 'absolute',
+    bottom: 8,
+    right: 8,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 12,
+    padding: 4,
+  },
+  productInfo: {
+    padding: 12,
+    gap: 8,
+  },
+  productName: {
     ...theme.typography.labelMedium,
     color: theme.colors.onSurface,
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  priceBadge: {
+    backgroundColor: theme.colors.primaryContainer,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  priceValue: {
+    ...theme.typography.labelMedium,
+    color: theme.colors.onPrimaryContainer,
+    fontWeight: '800',
+    fontSize: 13,
   },
   bottomNav: {
     height: 80,
@@ -373,6 +481,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-around',
     alignItems: 'center',
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
   },
   navItem: {
     alignItems: 'center',
@@ -388,5 +500,46 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '600',
     color: theme.colors.primaryContainer,
+  },
+  imageModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imageModalContent: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  fullImage: {
+    width: '100%',
+    height: '100%',
+  },
+  closeImageButton: {
+    position: 'absolute',
+    top: 40,
+    right: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  previewBanner: {
+    backgroundColor: theme.colors.primaryContainer,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    gap: 8,
+  },
+  previewText: {
+    ...theme.typography.labelMedium,
+    color: '#fff',
+    fontWeight: '800',
+    letterSpacing: 1,
   },
 });

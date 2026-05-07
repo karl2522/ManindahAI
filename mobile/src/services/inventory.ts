@@ -1,13 +1,15 @@
 import { supabase } from '../lib/supabase';
 import { Product } from './product';
 
-export type InventoryChangeType = 'restock' | 'sale' | 'adjustment' | 'loss';
+export type InventoryChangeType = 'restock' | 'sale' | 'loss' | 'adjustment' | 'price_change';
 
 export type InventoryLog = {
   log_id: string;
   product_id: string;
   change_type: InventoryChangeType;
   quantity_changed: number;
+  old_price?: number;
+  new_price?: number;
   date: string;
 };
 
@@ -22,17 +24,25 @@ export const InventoryService = {
   async adjustStock(
     product_id: string,
     quantity_changed: number,
-    change_type: InventoryChangeType
+    change_type: InventoryChangeType,
+    price_change?: { old_price: number; new_price: number }
   ): Promise<void> {
     const { error: logError } = await supabase
       .from('inventory_logs')
-      .insert({ product_id, quantity_changed, change_type });
+      .insert({ 
+        product_id, 
+        quantity_changed, 
+        change_type,
+        old_price: price_change?.old_price,
+        new_price: price_change?.new_price,
+        date: new Date().toISOString(),
+      });
 
     if (logError) throw new Error(`Failed to log inventory change: ${logError.message}`);
 
     const { data: current, error: fetchError } = await supabase
       .from('products')
-      .select('quantity')
+      .select('quantity, low_stock_threshold, name')
       .eq('product_id', product_id)
       .single();
 
@@ -46,6 +56,18 @@ export const InventoryService = {
       .eq('product_id', product_id);
 
     if (updateError) throw new Error(`Failed to update quantity: ${updateError.message}`);
+
+    // Check for low stock alert
+    const threshold = current.low_stock_threshold ?? LOW_STOCK_THRESHOLD;
+    if (quantity_changed < 0 && newQuantity <= threshold) {
+      import('./notificationService').then(({ NotificationService }) => {
+        NotificationService.scheduleLocalNotification(
+          'Kulang sa Stocks!',
+          `Ang item na "${current.name}" ay may ${newQuantity} na lang na stock.`,
+          { url: '/(tabs)/inventory' }
+        );
+      });
+    }
   },
 
   /**
