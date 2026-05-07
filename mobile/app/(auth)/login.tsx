@@ -38,7 +38,14 @@ export default function LoginScreen() {
       const roles = profile.roles ?? [];
       router.replace(roles.includes('owner') ? '/(tabs)' : '/(customer)');
     } catch (error: any) {
-      Alert.alert('Google Login Error', error.message);
+      if (error.code === 'auth/account-exists-with-different-credential') {
+        Alert.alert(
+          'Account Already Exists',
+          'An account with this email was already registered using email & password. Please sign in with your email and password instead.'
+        );
+      } else {
+        Alert.alert('Google Login Error', error.message);
+      }
     } finally {
       setLoading(false);
     }
@@ -53,7 +60,6 @@ export default function LoginScreen() {
     setLoading(true);
     try {
       const { profile } = await AuthService.loginWithEmail(email, password);
-      Alert.alert('Success', `Logged in successfully as ${profile.roles?.[0] || 'user'}!`);
       const roles = profile.roles ?? [];
       router.replace(roles.includes('owner') ? '/(tabs)' : '/(customer)');
     } catch (error: any) {
@@ -71,7 +77,14 @@ export default function LoginScreen() {
         const roles = profile.roles ?? [];
         router.replace(roles.includes('owner') ? '/(tabs)' : '/(customer)');
       } catch (error: any) {
-        Alert.alert('Google Login Error', error.message);
+        if (error.code === 'auth/account-exists-with-different-credential') {
+          Alert.alert(
+            'Account Already Exists',
+            'An account with this email was already registered using email & password. Please sign in with your email and password instead.'
+          );
+        } else {
+          Alert.alert('Google Login Error', error.message);
+        }
       } finally {
         setLoading(false);
       }

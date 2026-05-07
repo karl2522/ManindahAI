@@ -17,11 +17,13 @@ export default function TabsIndex() {
   const netInfo = useNetInfo();
   const isOnline = netInfo.isConnected === true && netInfo.isInternetReachable !== false;
 
-  const today = new Date().toISOString().split('T')[0];
+  const _d = new Date();
+  const todayStart = new Date(_d.getFullYear(), _d.getMonth(), _d.getDate()).toISOString();
+  const todayEnd = new Date(_d.getFullYear(), _d.getMonth(), _d.getDate(), 23, 59, 59, 999).toISOString();
 
   const { data: todaySales = [], isLoading: loadingTodaySales } = useQuery({
-    queryKey: ['sales-today', store?.store_id, today],
-    queryFn: () => SalesService.getByDateRange(store!.store_id, today, today),
+    queryKey: ['sales-today', store?.store_id, todayStart],
+    queryFn: () => SalesService.getByDateRange(store!.store_id, todayStart, todayEnd),
     enabled: !!store?.store_id,
   });
 

@@ -27,9 +27,7 @@ export default function RegisterScreen() {
     setLoading(true);
     try {
       await AuthService.registerWithEmail(email, password);
-      Alert.alert('Success', 'Account created! You can now log in.', [
-        { text: 'OK', onPress: () => router.replace('/(auth)/login') },
-      ]);
+      router.replace('/(customer)');
     } catch (error: any) {
       Alert.alert('Registration Error', error.message);
     } finally {
