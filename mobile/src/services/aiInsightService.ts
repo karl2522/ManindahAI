@@ -1,0 +1,135 @@
+import { Product } from './product';
+import { Sale } from './sales';
+
+export type InsightType =
+  | 'low_stock'
+  | 'trending_up'
+  | 'trending_down'
+  | 'stock_opportunity'
+  | 'general_tip';
+
+export type InsightPriority = 'urgent' | 'opportunity' | 'info';
+export type InsightAction = 'restock' | 'promote' | 'review_pricing' | null;
+
+export interface AIInsight {
+  id: string;
+  type: InsightType;
+  priority: InsightPriority;
+  title: string;
+  body: string;
+  action: InsightAction;
+}
+
+export interface InsightContext {
+  storeName: string;
+  products: Product[];
+  lowStockProducts: Product[];
+  thisWeekSales: Sale[];
+  lastWeekSales: Sale[];
+}
+
+const GEMINI_API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
+const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${GEMINI_API_KEY}`;
+
+export const AIInsightService = {
+  async generate(ctx: InsightContext): Promise<AIInsight[]> {
+    if (!GEMINI_API_KEY) {
+      throw new Error('Missing EXPO_PUBLIC_GEMINI_API_KEY. Please add it to your .env file.');
+    }
+
+    const thisWeekTotal = ctx.thisWeekSales.reduce((s, sale) => s + sale.total_amount, 0);
+    const lastWeekTotal = ctx.lastWeekSales.reduce((s, sale) => s + sale.total_amount, 0);
+    const weeklyChangePct =
+      lastWeekTotal > 0
+        ? Math.round(((thisWeekTotal - lastWeekTotal) / lastWeekTotal) * 100)
+        : null;
+
+    const catValue: Record<string, number> = {};
+    for (const p of ctx.products) {
+      const cat = p.category || 'Uncategorized';
+      catValue[cat] = (catValue[cat] || 0) + p.selling_price * p.quantity;
+    }
+    const topCat =
+      Object.entries(catValue).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+
+    const prompt = `You are a helpful business advisor for a Filipino sari-sari store (small neighborhood convenience store).
+
+Store Name: ${ctx.storeName}
+Today: ${new Date().toLocaleDateString('en-PH', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+
+SALES DATA:
+- This week: ₱${thisWeekTotal.toLocaleString()}${weeklyChangePct !== null ? ` (${weeklyChangePct >= 0 ? '+' : ''}${weeklyChangePct}% vs last week)` : ' (no comparison data yet)'}
+- Last week: ₱${lastWeekTotal.toLocaleString()}
+- Total transactions this week: ${ctx.thisWeekSales.length}
+
+INVENTORY SUMMARY:
+- Total products in catalog: ${ctx.products.length}
+- Products well-stocked (>5 units): ${ctx.products.filter((p) => p.quantity > 5).length}
+- Top category by stock value: ${topCat ?? 'None set'}
+
+LOW STOCK ITEMS (5 units or fewer — need restocking soon):
+${
+  ctx.lowStockProducts.length > 0
+    ? ctx.lowStockProducts
+        .slice(0, 6)
+        .map((p) => `  - ${p.name}: ${p.quantity} unit${p.quantity !== 1 ? 's' : ''} remaining`)
+        .join('\n')
+    : '  - None (all items are well-stocked!)'
+}
+
+Generate 3 to 5 practical business insights for the store owner.
+
+RULES:
+- Be specific — use actual product names and numbers from the data above
+- If there are low stock items, at least one insight MUST address them with priority "urgent"
+- Write in a friendly, encouraging tone suitable for a non-tech-savvy Filipino small business owner
+- If sales improved vs last week, be encouraging; if they dropped, be constructive
+- Do NOT invent product names or numbers not present in the data above
+- Each insight must suggest a concrete next step
+
+Return ONLY a raw JSON array with no markdown code fences:
+[
+  {
+    "type": "low_stock|trending_up|trending_down|stock_opportunity|general_tip",
+    "priority": "urgent|opportunity|info",
+    "title": "Short title, max 7 words",
+    "body": "1 to 2 sentences. Be specific and practical.",
+    "action": "restock|promote|review_pricing|null"
+  }
+]`;
+
+    const payload = {
+      contents: [{ parts: [{ text: prompt }] }],
+      generationConfig: {
+        temperature: 0.6,
+        responseMimeType: 'application/json',
+      },
+    };
+
+    const response = await fetch(GEMINI_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const err = await response.json();
+      throw new Error(`Gemini Error: ${err.error?.message || response.statusText}`);
+    }
+
+    const result = await response.json();
+    const aiText = result.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!aiText) return [];
+
+    const parsed: any[] = JSON.parse(aiText.trim());
+    return parsed.map((item, i) => ({
+      id: `insight-${Date.now()}-${i}`,
+      type: (item.type as InsightType) ?? 'general_tip',
+      priority: (item.priority as InsightPriority) ?? 'info',
+      title: item.title ?? 'Business Insight',
+      body: item.body ?? '',
+      action:
+        !item.action || item.action === 'null' ? null : (item.action as InsightAction),
+    }));
+  },
+};
