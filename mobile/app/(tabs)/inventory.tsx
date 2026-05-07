@@ -360,7 +360,7 @@ export default function InventoryScreen() {
             <Text style={[theme.typography.labelSmall, { color: theme.colors.onSurfaceVariant, textAlign: 'center' }]}>Qty</Text>
           </View>
           <View style={styles.tableColPrice}>
-            <Text style={[theme.typography.labelSmall, { color: theme.colors.onSurfaceVariant, textAlign: 'center' }]}>Desired{' '}Price</Text>
+            <Text style={[theme.typography.labelSmall, { color: theme.colors.onSurfaceVariant, textAlign: 'center' }]}>Sell Price</Text>
           </View>
           <View style={styles.tableColActions}>
             <Text style={[theme.typography.labelSmall, { color: theme.colors.onSurfaceVariant, textAlign: 'center' }]}>Actions</Text>
@@ -789,8 +789,8 @@ function ProductItem({ item, onAdjust, onEdit, onDelete, onPress }: { item: Prod
 
         {/* Desired Price */}
         <View style={styles.tableColPrice}>
-          <View style={[styles.priceBadge, { backgroundColor: theme.colors.primaryContainer }]}>
-            <Text style={[theme.typography.labelSmall, { color: theme.colors.onPrimaryContainer, fontWeight: '700' }]}>
+          <View style={[styles.priceBadge, { backgroundColor: theme.colors.primary }]}>
+            <Text style={[theme.typography.labelMedium, { color: theme.colors.onPrimary, fontWeight: '700' }]}>
               ₱{item.selling_price.toFixed(2)}
             </Text>
           </View>
@@ -801,8 +801,11 @@ function ProductItem({ item, onAdjust, onEdit, onDelete, onPress }: { item: Prod
           <TouchableOpacity onPress={onDelete} style={styles.tableAction}>
             <MaterialIcons name="delete-outline" size={20} color={theme.colors.error} />
           </TouchableOpacity>
+          <TouchableOpacity onPress={onEdit} style={styles.tableAction}>
+            <MaterialIcons name="edit" size={20} color={theme.colors.primary} />
+          </TouchableOpacity>
           <TouchableOpacity onPress={onAdjust} style={styles.tableAction}>
-            <MaterialIcons name="check-circle" size={20} color={theme.colors.tertiaryContainer} />
+            <MaterialIcons name="add-circle-outline" size={20} color={theme.colors.tertiary} />
           </TouchableOpacity>
           <TouchableOpacity
             onPress={() => { setIsExpanded(v => !v); setShowAll(false); }}
@@ -874,6 +877,14 @@ function ProductGridItem({ item, onAdjust, onEdit, onDelete, onPress }: { item: 
         isLow && { borderColor: theme.colors.errorContainer },
       ]}
     >
+      <TouchableOpacity 
+        style={styles.gridEditBtn} 
+        onPress={onEdit}
+        activeOpacity={0.6}
+      >
+        <MaterialIcons name="edit" size={18} color="white" />
+      </TouchableOpacity>
+
       <View style={[styles.gridImageContainer, { backgroundColor: theme.colors.surfaceVariant }]}>
         {item.image_url ? (
           <Image source={{ uri: item.image_url }} style={styles.gridImage} resizeMode="cover" />
@@ -902,7 +913,7 @@ function ProductGridItem({ item, onAdjust, onEdit, onDelete, onPress }: { item: 
             onPress={onAdjust}
             style={[styles.gridAdjustBtn, { backgroundColor: isLow ? theme.colors.error : theme.colors.primaryContainer }]}
           >
-            <MaterialIcons name="add" size={14} color={isLow ? theme.colors.onError : theme.colors.onPrimaryContainer} />
+            <MaterialIcons name="add-circle-outline" size={16} color={isLow ? theme.colors.onError : theme.colors.onPrimaryContainer} />
           </TouchableOpacity>
         </View>
       </View>
@@ -940,11 +951,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     borderWidth: 1,
     borderRadius: theme.borderRadius.lg,
-    backgroundColor: '#fff',
+    backgroundColor: theme.colors.surface,
   },
   searchInput: {
     flex: 1,
     marginLeft: 8,
+    color: theme.colors.onSurface,
   },
   filterButton: {
     width: 48,
@@ -953,7 +965,7 @@ const styles = StyleSheet.create({
     borderRadius: theme.borderRadius.lg,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#fff',
+    backgroundColor: theme.colors.surface,
   },
   offlineBanner: {
     flexDirection: 'row',
@@ -972,7 +984,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: theme.spacing.containerPadding,
     marginBottom: 16,
-    shadowColor: '#00535B',
+    shadowColor: theme.colors.primaryContainer,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.08,
     shadowRadius: 12,
@@ -1047,7 +1059,7 @@ const styles = StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
+    backgroundColor: 'rgba(0,0,0,0.6)',
     justifyContent: 'flex-end',
   },
   modalContainer: {
@@ -1081,7 +1093,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderRadius: 8,
     paddingHorizontal: 16,
-    backgroundColor: '#fff',
+    backgroundColor: theme.colors.surface,
+    color: theme.colors.onSurface,
   },
   modalFooter: {
     marginTop: 16,
@@ -1174,7 +1187,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#eee',
+    borderColor: theme.colors.outlineVariant,
     borderStyle: 'dashed',
   },
   imagePlaceholder: {
@@ -1208,7 +1221,7 @@ const styles = StyleSheet.create({
     flex: 1,
     borderRadius: 16,
     overflow: 'hidden',
-    shadowColor: '#00535B',
+    shadowColor: theme.colors.primaryContainer,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.08,
     shadowRadius: 12,
@@ -1270,22 +1283,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: theme.spacing.containerPadding,
     paddingVertical: 14,
     borderBottomWidth: 1,
-    backgroundColor: '#fff',
+    backgroundColor: theme.colors.surface,
   },
   tableColProduct: {
     flex: 3,
     paddingRight: 8,
   },
   tableColQty: {
-    width: 48,
+    width: 38,
     alignItems: 'center',
   },
   tableColPrice: {
-    width: 88,
+    width: 78,
     alignItems: 'center',
   },
   tableColActions: {
-    width: 80,
+    width: 92,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'flex-end',
@@ -1322,7 +1335,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   tableAction: {
-    padding: 3,
+    padding: 2,
+  },
+  gridEditBtn: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 2,
   },
   sortOption: {
     flexDirection: 'row',
