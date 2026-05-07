@@ -198,6 +198,7 @@ export default function InventoryScreen() {
     }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['products', store?.store_id] });
+      queryClient.invalidateQueries({ queryKey: ['inventory_logs'] });
       setModalVisible(false);
     },
   });
@@ -226,6 +227,12 @@ export default function InventoryScreen() {
       delta,
       change_type: type,
     }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['products', store?.store_id] });
+      queryClient.invalidateQueries({ queryKey: ['inventory_logs'] });
+      setModalVisible(false);
+      setQuantityInput('');
+    },
   });
 
   const confirmDelete = async () => {
@@ -252,7 +259,7 @@ export default function InventoryScreen() {
       } else if (modalMode === 'adjust' && selectedProduct) {
         const qty = parseInt(quantityInput, 10);
         if (!qty || qty <= 0) throw new Error('Enter a valid quantity');
-        const sign = (changeType === 'restock' || changeType === 'adjustment') ? 1 : -1;
+        const sign = changeType === 'restock' ? 1 : -1;
         const delta = qty * sign;
 
         adjustStockMutation.mutate({
@@ -431,27 +438,43 @@ export default function InventoryScreen() {
                     {selectedProduct?.name} — Current: {selectedProduct?.quantity}
                   </Text>
                   
-                  <Text style={[theme.typography.button, { color: theme.colors.onSurface, marginBottom: 8 }]}>Change Type</Text>
+                  <Text style={[theme.typography.button, { color: theme.colors.onSurface, marginBottom: 12 }]}>Adjustment Type</Text>
                   <View style={styles.typeRow}>
-                    {(['restock', 'adjustment', 'loss'] as InventoryChangeType[]).map((type) => (
-                      <TouchableOpacity
-                        key={type}
-                        style={[
-                          styles.typeButton,
-                          { borderColor: theme.colors.outlineVariant },
-                          changeType === type && { backgroundColor: theme.colors.primaryContainer, borderColor: theme.colors.primary }
-                        ]}
-                        onPress={() => setChangeType(type)}
-                      >
-                        <Text style={[
-                          theme.typography.labelMedium,
-                          { color: theme.colors.onSurfaceVariant },
-                          changeType === type && { color: theme.colors.primary, fontWeight: '700' }
-                        ]}>
-                          {type.charAt(0).toUpperCase() + type.slice(1)}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
+                    {(['restock', 'loss'] as InventoryChangeType[]).map((type) => {
+                      const colors = {
+                        restock: { bg: '#e8f5e9', border: '#2e7d32', text: '#2e7d32' },
+                        loss: { bg: '#ffebee', border: '#c62828', text: '#c62828' }
+                      }[type];
+
+                      const isSelected = changeType === type;
+                      
+                      return (
+                        <TouchableOpacity
+                          key={type}
+                          style={[
+                            styles.typeButton,
+                            { 
+                              borderColor: theme.colors.outlineVariant,
+                              backgroundColor: theme.colors.surfaceContainerLow,
+                            },
+                            isSelected && { 
+                              backgroundColor: colors.bg,
+                              borderColor: colors.border,
+                              borderWidth: 2,
+                            }
+                          ]}
+                          onPress={() => setChangeType(type)}
+                        >
+                          <Text style={[
+                            theme.typography.labelMedium,
+                            { color: theme.colors.onSurfaceVariant, fontWeight: '500' },
+                            isSelected && { color: colors.text, fontWeight: '700' }
+                          ]}>
+                            {type.charAt(0).toUpperCase() + type.slice(1)}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
                   </View>
 
                   <Text style={[theme.typography.button, { color: theme.colors.onSurface, marginBottom: 8, marginTop: 16 }]}>Quantity</Text>
@@ -719,13 +742,24 @@ function fmtLogDate(dateStr: string) {
 
 function logLabel(log: InventoryLog): string {
   const abs = Math.abs(log.quantity_changed);
+  
+  let label = '';
   switch (log.change_type) {
-    case 'restock':    return `Restocked +${abs}`;
-    case 'sale':       return `Sold −${abs}`;
-    case 'loss':       return `Loss −${abs}`;
-    case 'adjustment': return log.quantity_changed >= 0 ? `Adjusted +${abs}` : `Corrected −${abs}`;
-    default:           return `Changed ${log.quantity_changed > 0 ? '+' : ''}${log.quantity_changed}`;
+    case 'restock':    label = `Restocked +${abs}`; break;
+    case 'sale':       label = `Sold -${abs}`; break;
+    case 'adjustment': 
+      label = log.quantity_changed !== 0 ? `Adjusted ${log.quantity_changed > 0 ? '+' : ''}${log.quantity_changed}` : 'Price Update'; 
+      break;
+    case 'loss':       label = `Loss -${abs}`; break;
+    default:           label = 'Inventory Change';
   }
+
+  // Add price change info if available
+  if (log.old_price !== undefined && log.old_price !== null && log.new_price !== undefined && log.new_price !== null) {
+    label += ` (${log.old_price} → ${log.new_price})`;
+  }
+
+  return label;
 }
 
 function ProductItem({ item, onAdjust, onEdit, onDelete, onPress }: { item: Product, onAdjust: () => void, onEdit: () => void, onDelete: () => void, onPress: () => void }) {
@@ -839,10 +873,14 @@ function ProductItem({ item, onAdjust, onEdit, onDelete, onPress }: { item: Prod
                 return (
                   <View key={log.log_id} style={styles.logEntry}>
                     <MaterialIcons name={cfg.icon as any} size={13} color={cfg.color} style={{ marginRight: 7 }} />
-                    <Text style={[theme.typography.labelSmall, { flex: 1, color: theme.colors.onSurface }]}>
+                    <Text 
+                      style={[theme.typography.labelSmall, { flex: 1, color: theme.colors.onSurface }]}
+                      numberOfLines={1}
+                      ellipsizeMode="tail"
+                    >
                       {logLabel(log)}
                     </Text>
-                    <Text style={[theme.typography.labelSmall, { color: theme.colors.onSurfaceVariant }]}>
+                    <Text style={[theme.typography.labelSmall, { color: theme.colors.onSurfaceVariant, marginLeft: 8 }]}>
                       {fmtLogDate(log.date)}
                     </Text>
                   </View>
@@ -1294,7 +1332,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   tableColPrice: {
-    width: 78,
+    width: 90,
     alignItems: 'center',
   },
   tableColActions: {
@@ -1329,7 +1367,7 @@ const styles = StyleSheet.create({
     minWidth: 32,
   },
   priceBadge: {
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
     paddingVertical: 4,
     borderRadius: 6,
     alignItems: 'center',

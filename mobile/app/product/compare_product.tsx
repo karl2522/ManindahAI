@@ -1,50 +1,22 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import {
   View,
   Text,
   ScrollView,
   StyleSheet,
   TouchableOpacity,
-  Alert,
   Platform,
+  ActivityIndicator,
+  Image,
 } from 'react-native';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { useQuery } from '@tanstack/react-query';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { InventoryService } from '../../src/services/inventory';
 import { ProductService } from '../../src/services/product';
 import { useStore } from '../../src/hooks/useStore';
 import { theme } from '../../src/theme/theme';
-
-const MOCK_SUPPLIERS = [
-  {
-    id: '1',
-    name: 'Metro Cash & Carry',
-    rating: 4.9,
-    distance: '2.3km away',
-    price: 185.0,
-    delivery: 'Today',
-    bestValue: true,
-  },
-  {
-    id: '2',
-    name: 'Luzon Wholesale',
-    rating: 4.5,
-    distance: '5.1km away',
-    price: 192.5,
-    delivery: 'Tomorrow',
-    bestValue: false,
-  },
-  {
-    id: '3',
-    name: 'Bayanihan Logistics',
-    rating: 4.8,
-    distance: '8.4km away',
-    price: 195.0,
-    delivery: '2 days',
-    bestValue: false,
-  },
-];
 
 export default function CompareProductScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
@@ -58,7 +30,59 @@ export default function CompareProductScreen() {
     enabled: !!store,
   });
 
+  const { data: logs = [], isLoading: loadingLogs } = useQuery({
+    queryKey: ['inventory_logs', id],
+    queryFn: () => InventoryService.getLogs(id),
+    enabled: !!id,
+  });
+
   const product = products.find((p) => p.product_id === id);
+
+  const priceHistory = useMemo(() => {
+    if (!product) return [];
+
+    // 1. Filter logs that have price change data
+    // We check for both old_price and new_price to ensure it's a price-related log
+    const priceLogs = [...logs]
+      .filter(log => (log.old_price !== undefined && log.old_price !== null) || (log.new_price !== undefined && log.new_price !== null))
+      .sort((a, b) => {
+        const dateA = new Date(a.date || (a as any).created_at || 0).getTime();
+        const dateB = new Date(b.date || (b as any).created_at || 0).getTime();
+        return dateB - dateA;
+      });
+    
+    const history = [];
+
+    // 2. Current Price (Top of list)
+    history.push({
+      date: 'Today',
+      price: product.selling_price,
+      status: 'Current',
+      label: 'Latest Price'
+    });
+
+    // 3. Map all past prices from the logs
+    // Each log's 'old_price' is the price it was BEFORE that specific change
+    priceLogs.forEach((log, index) => {
+      if (log.old_price !== undefined && log.old_price !== null) {
+        const logDate = log.date || (log as any).created_at;
+        history.push({
+          date: logDate ? new Date(logDate).toLocaleDateString('en-PH', { 
+            month: 'short', 
+            day: 'numeric', 
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit'
+          }) : 'Unknown Date',
+          price: log.old_price,
+          status: index === 0 ? 'Previous' : 'Old',
+          label: index === 0 ? 'Last Price' : 'Past Price'
+        });
+      }
+    });
+
+    return history;
+  }, [logs, product]);
 
   if (!product) {
     return (
@@ -73,8 +97,6 @@ export default function CompareProductScreen() {
       </View>
     );
   }
-
-  const skuShort = product.product_id.slice(-8).toUpperCase();
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
@@ -99,7 +121,7 @@ export default function CompareProductScreen() {
         </TouchableOpacity>
 
         <Text style={[styles.headerTitle, { color: theme.colors.primary }]}>
-          Compare Suppliers
+          Compare Prices
         </Text>
 
         <View style={styles.headerIconBtn} />
@@ -110,6 +132,7 @@ export default function CompareProductScreen() {
         contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, 24) + 16 }]}
         showsVerticalScrollIndicator={false}
       >
+        {/* Product Brief */}
         <View
           style={[
             styles.productCard,
@@ -122,29 +145,47 @@ export default function CompareProductScreen() {
               { backgroundColor: theme.colors.surfaceContainerLow, borderColor: theme.colors.surfaceVariant },
             ]}
           >
-            <MaterialIcons name="inventory-2" size={32} color={theme.colors.outline} />
+            {product.image_url ? (
+              <Image source={{ uri: product.image_url }} style={{ width: '100%', height: '100%' }} />
+            ) : (
+              <MaterialIcons name="inventory-2" size={32} color={theme.colors.outline} />
+            )}
           </View>
 
           <View style={{ flex: 1 }}>
             <Text
-              style={[theme.typography.bodyLarge, { color: theme.colors.onSurface, fontWeight: '600' }]}
-              numberOfLines={2}
+              style={[theme.typography.h3, { color: theme.colors.onSurface, fontWeight: '700' }]}
+              numberOfLines={1}
             >
               {product.name}
             </Text>
             <View style={styles.productMeta}>
-              <View style={[styles.skuBadge, { backgroundColor: theme.colors.surfaceContainer }]}>
-                <Text style={[theme.typography.labelMedium, { color: theme.colors.onSurfaceVariant }]}>
-                  SKU: {skuShort}
+              <View style={[styles.skuBadge, { backgroundColor: theme.colors.primaryContainer }]}>
+                <Text 
+                  style={[theme.typography.labelMedium, { color: theme.colors.onPrimaryContainer, fontWeight: '700' }]}
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
+                >
+                  Sell: ₱{product.selling_price.toFixed(2)}
+                </Text>
+              </View>
+              <View style={[styles.skuBadge, { backgroundColor: theme.colors.secondaryContainer }]}>
+                <Text 
+                  style={[theme.typography.labelMedium, { color: theme.colors.onSecondaryContainer, fontWeight: '700' }]}
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
+                >
+                  Cost: ₱{product.original_price.toFixed(2)}
                 </Text>
               </View>
               <Text style={[theme.typography.labelMedium, { color: theme.colors.onSurfaceVariant }]}>
-                • {product.quantity} units
+                Qty: {product.quantity}
               </Text>
             </View>
           </View>
         </View>
 
+        {/* Price History Section */}
         <View style={styles.sectionHeader}>
           <Text
             style={[
@@ -152,165 +193,58 @@ export default function CompareProductScreen() {
               { color: theme.colors.onSurfaceVariant, letterSpacing: 1.2, textTransform: 'uppercase' },
             ]}
           >
-            Available Suppliers
-          </Text>
-          <Text style={[theme.typography.labelMedium, { color: theme.colors.onSurfaceVariant }]}>
-            {MOCK_SUPPLIERS.length} found
+            Internal Price History
           </Text>
         </View>
 
-        {MOCK_SUPPLIERS.map((supplier) => (
-          <View
-            key={supplier.id}
-            style={[
-              styles.supplierCard,
-              { backgroundColor: theme.colors.surfaceContainerLow },
-              supplier.bestValue
-                ? {
-                    borderWidth: 2,
-                    borderColor: theme.colors.primaryFixedDim,
-                    shadowColor: theme.colors.primary,
-                    shadowOffset: { width: 0, height: 4 },
-                    shadowOpacity: 0.15,
-                    shadowRadius: 16,
-                    elevation: 8,
-                    marginTop: 18,
-                  }
-                : {
-                    borderWidth: 1,
-                    borderColor: theme.colors.surfaceVariant,
-                    shadowColor: theme.colors.primary,
-                    shadowOffset: { width: 0, height: 2 },
-                    shadowOpacity: 0.06,
-                    shadowRadius: 8,
-                    elevation: 2,
-                  },
-            ]}
-          >
-            {supplier.bestValue && (
-              <View
-                style={[
-                  styles.bestValueBadge,
-                  { backgroundColor: theme.colors.tertiaryFixed, borderColor: theme.colors.tertiaryFixedDim },
-                ]}
-              >
-                <MaterialIcons name="star" size={14} color={theme.colors.onTertiaryFixed} />
-                <Text
-                  style={[theme.typography.labelMedium, { color: theme.colors.onTertiaryFixed, fontWeight: '700', marginLeft: 4 }]}
-                >
-                  Best Value
-                </Text>
-              </View>
-            )}
-
-            <View style={styles.supplierNameRow}>
-              <View style={{ flex: 1 }}>
-                <Text
-                  style={[
-                    supplier.bestValue ? theme.typography.h3 : theme.typography.bodyLarge,
-                    { color: supplier.bestValue ? theme.colors.primary : theme.colors.onSurface, fontWeight: supplier.bestValue ? '700' : '600' },
-                  ]}
-                >
-                  {supplier.name}
-                </Text>
-                <View style={styles.supplierMeta}>
-                  <View style={styles.metaItem}>
-                    <MaterialIcons name="star" size={16} color="#f0bf65" />
-                    <Text style={[theme.typography.bodyMedium, { color: theme.colors.onSurfaceVariant, marginLeft: 3 }]}>
-                      {supplier.rating}
-                    </Text>
-                  </View>
-                  <View style={styles.dot} />
-                  <View style={styles.metaItem}>
-                    <MaterialIcons name="location-on" size={16} color={theme.colors.onSurfaceVariant} />
-                    <Text style={[theme.typography.bodyMedium, { color: theme.colors.onSurfaceVariant, marginLeft: 3 }]}>
-                      {supplier.distance}
-                    </Text>
-                  </View>
-                </View>
-              </View>
-
-              {!supplier.bestValue && (
-                <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={[theme.typography.h3, { color: theme.colors.onSurface, fontWeight: '700' }]}>
-                    ₱{supplier.price.toFixed(2)}
-                  </Text>
-                  <Text style={[theme.typography.labelMedium, { color: theme.colors.onSurfaceVariant }]}>
-                    / case
-                  </Text>
-                </View>
-              )}
+        <View style={[styles.historyCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.surfaceVariant }]}>
+          {loadingLogs ? (
+            <View style={{ padding: 20, alignItems: 'center' }}>
+              <ActivityIndicator color={theme.colors.primary} />
             </View>
-
-            {supplier.bestValue && (
-              <View
-                style={[
-                  styles.priceDeliveryBox,
-                  { backgroundColor: theme.colors.surfaceContainerLow, borderColor: theme.colors.surfaceVariant },
-                ]}
-              >
-                <View>
-                  <Text style={[theme.typography.labelMedium, { color: theme.colors.onSurfaceVariant, marginBottom: 2 }]}>
-                    Price per Case
-                  </Text>
-                  <Text style={[theme.typography.h2, { color: theme.colors.primary, fontWeight: '800' }]}>
-                    ₱{supplier.price.toFixed(2)}
-                  </Text>
-                </View>
-                <View style={{ alignItems: 'flex-end' }}>
-                  <Text style={[theme.typography.labelMedium, { color: theme.colors.onSurfaceVariant, marginBottom: 2 }]}>
-                    Est. Delivery
-                  </Text>
-                  <View style={styles.metaItem}>
-                    <MaterialIcons name="local-shipping" size={16} color={theme.colors.onSurface} />
-                    <Text style={[theme.typography.button, { color: theme.colors.onSurface, marginLeft: 4 }]}>
-                      {supplier.delivery}
+          ) : priceHistory.length <= 1 ? (
+            <View style={{ padding: 20, alignItems: 'center' }}>
+              <Text style={[theme.typography.bodyMedium, { color: theme.colors.onSurfaceVariant }]}>No previous price changes recorded.</Text>
+            </View>
+          ) : (
+            priceHistory.map((item, idx) => (
+              <View key={idx} style={[styles.historyRow, idx !== priceHistory.length - 1 && { borderBottomWidth: 1, borderBottomColor: theme.colors.surfaceVariant }]}>
+                <View style={{ flex: 1, paddingRight: 12 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <Text 
+                      style={[theme.typography.h3, { color: theme.colors.onSurface, fontWeight: '700' }]}
+                      numberOfLines={1}
+                      ellipsizeMode="tail"
+                    >
+                      ₱{item.price.toFixed(2)}
                     </Text>
+                    <View style={[styles.statusBadge, { backgroundColor: item.status === 'Current' ? theme.colors.primaryContainer : theme.colors.surfaceContainerHigh }]}>
+                      <Text style={[theme.typography.labelSmall, { color: item.status === 'Current' ? theme.colors.onPrimaryContainer : theme.colors.onSurfaceVariant, fontWeight: '700' }]}>
+                        {item.status.toUpperCase()}
+                      </Text>
+                    </View>
                   </View>
+                  <Text style={[theme.typography.labelMedium, { color: theme.colors.onSurfaceVariant, marginTop: 2 }]}>
+                    {item.label} • {item.date}
+                  </Text>
                 </View>
+                <MaterialIcons 
+                  name={idx === 0 ? "check-circle" : "history"} 
+                  size={20} 
+                  color={idx === 0 ? theme.colors.primary : theme.colors.outline} 
+                />
               </View>
-            )}
+            ))
+          )}
+        </View>
 
-            <TouchableOpacity
-              style={[
-                styles.ctaButton,
-                supplier.bestValue
-                  ? {
-                      backgroundColor: theme.colors.primary,
-                      shadowColor: theme.colors.primary,
-                      shadowOffset: { width: 0, height: 2 },
-                      shadowOpacity: 0.25,
-                      shadowRadius: 8,
-                      elevation: 3,
-                    }
-                  : {
-                      backgroundColor: 'transparent',
-                      borderWidth: 2,
-                      borderColor: `${theme.colors.primary}30`,
-                    },
-              ]}
-              activeOpacity={0.8}
-              onPress={() =>
-                Alert.alert(
-                  supplier.bestValue ? 'Order Now' : 'Select Supplier',
-                  `Contacting ${supplier.name}…`,
-                )
-              }
-            >
-              {supplier.bestValue && (
-                <MaterialIcons name="shopping-cart" size={20} color={theme.colors.onPrimary} />
-              )}
-              <Text
-                style={[
-                  theme.typography.button,
-                  { color: supplier.bestValue ? theme.colors.onPrimary : theme.colors.primary, marginLeft: supplier.bestValue ? 8 : 0 },
-                ]}
-              >
-                {supplier.bestValue ? 'Order Now' : 'Select Supplier'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        ))}
+        {/* Insights Summary */}
+        <View style={[styles.infoBox, { backgroundColor: theme.colors.secondaryContainer }]}>
+          <MaterialIcons name="info" size={20} color={theme.colors.onSecondaryContainer} />
+          <Text style={[theme.typography.bodyMedium, { color: theme.colors.onSecondaryContainer, flex: 1, marginLeft: 12 }]}>
+            This history reflects all price edits made in the inventory. Use this to track your profit margins and adjustment trends.
+          </Text>
+        </View>
       </ScrollView>
     </View>
   );
@@ -353,25 +287,25 @@ const styles = StyleSheet.create({
   content: {
     paddingHorizontal: 20,
     paddingTop: 20,
-    gap: 12,
+    gap: 16,
   },
   productCard: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 16,
     padding: 16,
-    borderRadius: 16,
+    borderRadius: 20,
     borderWidth: 1,
     shadowColor: '#003a40',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 2,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+    elevation: 3,
   },
   productImageBox: {
     width: 64,
     height: 64,
-    borderRadius: 12,
+    borderRadius: 14,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
@@ -381,75 +315,43 @@ const styles = StyleSheet.create({
   productMeta: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginTop: 6,
+    gap: 12,
+    marginTop: 8,
     flexWrap: 'wrap',
   },
   skuBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 99,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 8,
   },
   sectionHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 4,
-    marginTop: 8,
+    marginTop: 12,
   },
-  supplierCard: {
-    borderRadius: 16,
-    padding: 16,
-    position: 'relative',
+  historyCard: {
+    borderRadius: 20,
+    borderWidth: 1,
+    overflow: 'hidden',
   },
-  bestValueBadge: {
-    position: 'absolute',
-    top: -14,
-    right: 16,
+  historyRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
+    justifyContent: 'space-between',
+    padding: 20,
+  },
+  statusBadge: {
+    paddingHorizontal: 10,
     paddingVertical: 4,
-    borderRadius: 99,
-    borderWidth: 1,
-    zIndex: 10,
+    borderRadius: 6,
   },
-  supplierNameRow: {
+  infoBox: {
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    justifyContent: 'space-between',
-    marginBottom: 12,
-  },
-  supplierMeta: {
-    flexDirection: 'row',
+    padding: 16,
+    borderRadius: 16,
+    marginTop: 8,
     alignItems: 'center',
-    marginTop: 4,
-  },
-  metaItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  dot: {
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: theme.colors.outlineVariant,
-    marginHorizontal: 10,
-  },
-  priceDeliveryBox: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-end',
-    padding: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    marginBottom: 16,
-  },
-  ctaButton: {
-    height: 56,
-    borderRadius: 12,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
 });

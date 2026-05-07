@@ -1,13 +1,15 @@
 import { supabase } from '../lib/supabase';
 import { Product } from './product';
 
-export type InventoryChangeType = 'restock' | 'sale' | 'adjustment' | 'loss';
+export type InventoryChangeType = 'restock' | 'sale' | 'loss';
 
 export type InventoryLog = {
   log_id: string;
   product_id: string;
   change_type: InventoryChangeType;
   quantity_changed: number;
+  old_price?: number;
+  new_price?: number;
   date: string;
 };
 
@@ -22,11 +24,19 @@ export const InventoryService = {
   async adjustStock(
     product_id: string,
     quantity_changed: number,
-    change_type: InventoryChangeType
+    change_type: InventoryChangeType,
+    price_change?: { old_price: number; new_price: number }
   ): Promise<void> {
     const { error: logError } = await supabase
       .from('inventory_logs')
-      .insert({ product_id, quantity_changed, change_type });
+      .insert({ 
+        product_id, 
+        quantity_changed, 
+        change_type,
+        old_price: price_change?.old_price,
+        new_price: price_change?.new_price,
+        date: new Date().toISOString(),
+      });
 
     if (logError) throw new Error(`Failed to log inventory change: ${logError.message}`);
 

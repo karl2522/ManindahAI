@@ -98,6 +98,16 @@ export const ProductService = {
    * Update an existing product by its ID.
    */
   async update(product_id: string, input: UpdateProductInput): Promise<Product> {
+    // 1. Fetch current product to detect price changes
+    const { data: current, error: fetchError } = await supabase
+      .from('products')
+      .select('selling_price')
+      .eq('product_id', product_id)
+      .single();
+
+    if (fetchError) throw new Error(`Failed to fetch product for update: ${fetchError.message}`);
+
+    // 2. Perform the update
     const { data, error } = await supabase
       .from('products')
       .update(input)
@@ -106,6 +116,25 @@ export const ProductService = {
       .single();
 
     if (error) throw new Error(`Failed to update product: ${error.message}`);
+
+    // 3. Log price change if detected
+    const oldPrice = Number(current.selling_price);
+    const newPrice = input.selling_price !== undefined ? Number(input.selling_price) : oldPrice;
+
+    if (input.selling_price !== undefined && newPrice !== oldPrice) {
+      const { error: logError } = await supabase.from('inventory_logs').insert({
+        product_id,
+        change_type: 'restock',
+        quantity_changed: 0,
+        old_price: oldPrice,
+        new_price: newPrice,
+        date: new Date().toISOString(),
+      });
+
+      if (logError) {
+        console.error('[ProductService] Failed to log price change:', logError.message);
+      }
+    }
 
     return data as Product;
   },
