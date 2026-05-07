@@ -1,7 +1,7 @@
 import { supabase } from '../lib/supabase';
 import { Product } from './product';
 
-export type InventoryChangeType = 'restock' | 'sale' | 'loss';
+export type InventoryChangeType = 'restock' | 'sale' | 'loss' | 'adjustment' | 'price_change';
 
 export type InventoryLog = {
   log_id: string;

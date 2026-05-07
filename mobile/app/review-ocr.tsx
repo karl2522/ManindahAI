@@ -222,6 +222,7 @@ export default function ReviewOCRScreen() {
       unitPrice: parseFloat(newItemPrice),
       quantity: parseInt(newItemQty, 10),
       isConfirmed: false,
+      confidence: 1.0,
     };
 
     setItems(prev => [...prev, newItem]);
@@ -860,7 +861,6 @@ const styles = StyleSheet.create({
     color: '#0f172a',
     backgroundColor: '#ffffff',
     minHeight: 48,
-    transitionProperty: 'borderColor backgroundColor',
   },
   modalInputFilled: {
     borderColor: theme.colors.primary,
@@ -879,14 +879,6 @@ const styles = StyleSheet.create({
     paddingLeft: 12,
     backgroundColor: '#ffffff',
     minHeight: 48,
-  },
-  modalInputFilled: {
-    borderColor: theme.colors.primary,
-    backgroundColor: '#f0f9ff',
-  },
-  modalInputError: {
-    borderColor: theme.colors.error,
-    backgroundColor: '#fef2f2',
   },
   currencyPrefix: {
     fontSize: 14,

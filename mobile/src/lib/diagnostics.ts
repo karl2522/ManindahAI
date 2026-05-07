@@ -27,7 +27,7 @@ export async function runOfflineDiagnostics() {
     await addToOutbox({ 
       op: 'product_create', 
       store_id: 'test-store', 
-      payload: { name: 'Diag Product', selling_price: 1, original_price: 1, store_id: 'test-store' } 
+      payload: { name: 'Diag Product', selling_price: 1, original_price: 1, quantity: 0, store_id: 'test-store' } 
     });
     const items = await getOutbox();
     results.outboxPersistence = items.length === 1 && items[0].op === 'product_create';

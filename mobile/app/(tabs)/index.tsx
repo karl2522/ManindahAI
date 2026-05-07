@@ -84,11 +84,11 @@ export default function TabsIndex() {
           onPress={() => router.push('/(tabs)/financial_hub')}
         />
         <ActionButton 
-          icon="local-shipping" 
-          label="Supplier Matrix" 
+          icon="map" 
+          label="Store Location" 
           color={theme.colors.secondaryContainer} 
           iconColor={theme.colors.onSecondaryContainer} 
-          onPress={() => Alert.alert('Supplier Matrix', 'Opening supplier management...')}
+          onPress={() => router.push('/(tabs)/store_location')}
         />
         <ActionButton 
           icon="account-circle" 

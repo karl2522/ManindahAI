@@ -440,11 +440,10 @@ export default function InventoryScreen() {
                   
                   <Text style={[theme.typography.button, { color: theme.colors.onSurface, marginBottom: 12 }]}>Adjustment Type</Text>
                   <View style={styles.typeRow}>
-                    {(['restock', 'loss'] as InventoryChangeType[]).map((type) => {
-                      const colors = {
-                        restock: { bg: '#e8f5e9', border: '#2e7d32', text: '#2e7d32' },
-                        loss: { bg: '#ffebee', border: '#c62828', text: '#c62828' }
-                      }[type];
+                    {(['restock', 'loss'] as const).map((type) => {
+                      const colors = type === 'restock' 
+                        ? { bg: '#e8f5e9', border: '#2e7d32', text: '#2e7d32' }
+                        : { bg: '#ffebee', border: '#c62828', text: '#c62828' };
 
                       const isSelected = changeType === type;
                       

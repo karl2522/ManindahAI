@@ -26,23 +26,21 @@ export default function RecordSalesScreen() {
   const [qtys, setQtys] = useState<Record<string, string>>({});
   const [reviewVisible, setReviewVisible] = useState(false);
 
-  const saleMutation = useOfflineMutation<any, Error, CreateSaleInput, unknown>(
-    (input) => SalesService.create(input),
-    {
-      getOutboxInput: (input) => ({ op: 'sale_create', store_id: input.store_id, payload: input }),
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: ['sales', store?.store_id] });
-        queryClient.invalidateQueries({ queryKey: ['products', store?.store_id] });
-        setReviewVisible(false);
-        Alert.alert(
-          'Sale Recorded!',
-          `Revenue: ₱${totalAmount.toFixed(2)}\nProfit: ₱${totalProfit.toFixed(2)}`,
-          [{ text: 'Done', onPress: () => router.back() }]
-        );
-      },
-      onError: (e) => Alert.alert('Error', e.message),
-    }
-  );
+  const saleMutation = useOfflineMutation<any, Error, CreateSaleInput, unknown>({
+    mutationFn: (input: CreateSaleInput) => SalesService.create(input),
+    getOutboxInput: (input: CreateSaleInput) => ({ op: 'sale_create', store_id: input.store_id, payload: input }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['sales', store?.store_id] });
+      queryClient.invalidateQueries({ queryKey: ['products', store?.store_id] });
+      setReviewVisible(false);
+      Alert.alert(
+        'Sale Recorded!',
+        `Revenue: ₱${totalAmount.toFixed(2)}\nProfit: ₱${totalProfit.toFixed(2)}`,
+        [{ text: 'Done', onPress: () => router.back() }]
+      );
+    },
+    onError: (e: Error) => Alert.alert('Error', e.message),
+  });
 
   const submitting = saleMutation.isPending;
 

@@ -7,7 +7,7 @@
       "dom.iterable"
     ],
     "module": "ESNext",
-    "moduleResolution": "node",
+    "moduleResolution": "bundler",
     "strict": true,
     "jsx": "react-native",
     "esModuleInterop": true,

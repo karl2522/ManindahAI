@@ -181,7 +181,7 @@ export default function FinancialHubScreen() {
     if (editExp) {
       updateExpenseMutation.mutate({ 
         id: editExp.expense_id, 
-        input: { name: expName.trim(), amount } 
+        data: { name: expName.trim(), amount } 
       });
     } else {
       createExpenseMutation.mutate({ 

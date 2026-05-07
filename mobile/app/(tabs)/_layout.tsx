@@ -153,6 +153,13 @@ export default function TabsLayout() {
           tabBarStyle: { display: 'none' },
         }}
       />
+      <Tabs.Screen
+        name="store_location"
+        options={{
+          href: null,
+          tabBarStyle: { display: 'none' },
+        }}
+      />
       {/* Hidden legacy tab */}
       <Tabs.Screen
         name="products"

@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator, LayoutAnimation, UIManager, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator, LayoutAnimation, UIManager, Platform, Modal } from 'react-native';
 import { Stack, useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
@@ -25,6 +25,8 @@ export default function InsightsScreen() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [lastGenerated, setLastGenerated] = useState<Date | null>(null);
   const [chartExpanded, setChartExpanded] = useState(true);
+  const [language, setLanguage] = useState<'english' | 'tagalog'>('english');
+  const [langModalVisible, setLangModalVisible] = useState(false);
 
   useEffect(() => {
     if (Platform.OS === 'android') {
@@ -104,7 +106,8 @@ export default function InsightsScreen() {
     profile?.email?.split('@')[0] ||
     'Ka-negosyo';
 
-  const handleGenerateInsights = async () => {
+  const runGenerateInsights = async (selectedLang: 'english' | 'tagalog' | 'cebuano') => {
+    setLangModalVisible(false);
     if (!store || isGenerating) return;
     setIsGenerating(true);
     try {
@@ -114,6 +117,7 @@ export default function InsightsScreen() {
         lowStockProducts,
         thisWeekSales,
         lastWeekSales,
+        language: selectedLang,
       });
       setInsights(generated);
       setLastGenerated(new Date());
@@ -122,6 +126,11 @@ export default function InsightsScreen() {
     } finally {
       setIsGenerating(false);
     }
+  };
+
+  const handleGenerateInsights = () => {
+    if (!storeId) return;
+    setLangModalVisible(true);
   };
 
   return (
@@ -193,9 +202,6 @@ export default function InsightsScreen() {
           <Text style={[theme.typography.button, { color: theme.colors.onSurface, marginLeft: 8 }]}>
             AI Smart Suggestions
           </Text>
-          <View style={[styles.aiBadge, { backgroundColor: theme.colors.secondaryContainer }]}>
-            <Text style={[theme.typography.labelMedium, { color: theme.colors.onSecondaryContainer }]}>Gemini</Text>
-          </View>
         </View>
 
         {/* Disclaimer */}
@@ -209,7 +215,7 @@ export default function InsightsScreen() {
         </View>
 
         {/* States: Generating / Empty / Insight Cards */}
-        {isGenerating ? (
+        {isGenerating && insights.length === 0 ? (
           <View style={styles.loadingContainer}>
             <ActivityIndicator size="large" color={theme.colors.primary} />
             <Text style={[theme.typography.bodyLarge, { color: theme.colors.onSurfaceVariant, marginTop: 16 }]}>
@@ -226,7 +232,7 @@ export default function InsightsScreen() {
               Get AI-Powered Insights
             </Text>
             <Text style={[theme.typography.bodyMedium, { color: theme.colors.onSurfaceVariant, textAlign: 'center', marginTop: 8, lineHeight: 22 }]}>
-              Let Gemini AI analyze your sales, inventory, and stock data to generate personalized suggestions for your store.
+              Let AI analyze your sales, inventory, and stock data to generate personalized suggestions for your store.
             </Text>
             <TouchableOpacity
               style={[styles.generateButton, { backgroundColor: theme.colors.primary, opacity: !storeId ? 0.5 : 1 }]}
@@ -248,10 +254,18 @@ export default function InsightsScreen() {
                   {lastGenerated.toLocaleTimeString('en-PH', { hour: '2-digit', minute: '2-digit' })}
                 </Text>
               )}
-              <TouchableOpacity onPress={handleGenerateInsights} style={styles.refreshButton}>
-                <MaterialIcons name="refresh" size={16} color={theme.colors.primary} />
+              <TouchableOpacity 
+                onPress={handleGenerateInsights} 
+                style={[styles.refreshButton, isGenerating && { opacity: 0.7 }]}
+                disabled={isGenerating}
+              >
+                {isGenerating ? (
+                  <ActivityIndicator size="small" color={theme.colors.primary} />
+                ) : (
+                  <MaterialIcons name="refresh" size={16} color={theme.colors.primary} />
+                )}
                 <Text style={[theme.typography.labelMedium, { color: theme.colors.primary, marginLeft: 4 }]}>
-                  Refresh
+                  {isGenerating ? 'Analyzing...' : 'Refresh'}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -261,6 +275,32 @@ export default function InsightsScreen() {
           </>
         )}
       </ScrollView>
+
+      {/* Language Selection Modal */}
+      <Modal visible={langModalVisible} animationType="fade" transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <Text style={styles.modalTitle}>Generate Insights</Text>
+            <Text style={styles.modalSubtitle}>Which language would you prefer for your AI insights?</Text>
+            
+            <View style={styles.langOptionsContainer}>
+              <TouchableOpacity style={styles.langOptionBtn} onPress={() => runGenerateInsights('english')}>
+                <Text style={styles.langOptionText}>English</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.langOptionBtn} onPress={() => runGenerateInsights('tagalog')}>
+                <Text style={styles.langOptionText}>Tagalog</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.langOptionBtn} onPress={() => runGenerateInsights('cebuano')}>
+                <Text style={styles.langOptionText}>Cebuano</Text>
+              </TouchableOpacity>
+            </View>
+
+            <TouchableOpacity style={styles.cancelModalBtn} onPress={() => setLangModalVisible(false)}>
+              <Text style={styles.cancelModalText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -551,12 +591,6 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 2,
   },
-  aiBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
-    marginLeft: 8,
-  },
   disclaimerCard: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -607,5 +641,59 @@ const styles = StyleSheet.create({
   refreshButton: {
     flexDirection: 'row',
     alignItems: 'center',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  modalContainer: {
+    backgroundColor: theme.colors.surface,
+    borderRadius: theme.borderRadius.xl,
+    padding: 24,
+    width: '100%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  modalTitle: {
+    ...theme.typography.h3,
+    color: theme.colors.onSurface,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  modalSubtitle: {
+    ...theme.typography.bodyMedium,
+    color: theme.colors.onSurfaceVariant,
+    marginBottom: 24,
+    textAlign: 'center',
+  },
+  langOptionsContainer: {
+    gap: 12,
+    marginBottom: 24,
+  },
+  langOptionBtn: {
+    backgroundColor: theme.colors.surfaceContainerLow,
+    paddingVertical: 14,
+    borderRadius: theme.borderRadius.lg,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: theme.colors.outlineVariant,
+  },
+  langOptionText: {
+    ...theme.typography.button,
+    color: theme.colors.onSurface,
+  },
+  cancelModalBtn: {
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  cancelModalText: {
+    ...theme.typography.button,
+    color: theme.colors.error,
   },
 });

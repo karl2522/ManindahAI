@@ -26,14 +26,17 @@ export interface InsightContext {
   lowStockProducts: Product[];
   thisWeekSales: Sale[];
   lastWeekSales: Sale[];
+  language?: 'english' | 'tagalog' | 'cebuano';
 }
 
 const GEMINI_API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
-const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${GEMINI_API_KEY}`;
 
 export const AIInsightService = {
   async generate(ctx: InsightContext): Promise<AIInsight[]> {
+    console.log('[AIInsightService] Starting insight generation...');
+    
     if (!GEMINI_API_KEY) {
+      console.error('[AIInsightService] GEMINI_API_KEY is undefined!');
       throw new Error('Missing EXPO_PUBLIC_GEMINI_API_KEY. Please add it to your .env file.');
     }
 
@@ -80,13 +83,13 @@ ${
 Generate 3 to 5 practical business insights for the store owner.
 
 RULES:
+- Write ALL responses in ${ctx.language ? ctx.language.toUpperCase() : 'ENGLISH'}.
 - Be specific — use actual product names and numbers from the data above
 - If there are low stock items, at least one insight MUST address them with priority "urgent"
 - Write in a friendly, encouraging tone suitable for a non-tech-savvy Filipino small business owner
 - If sales improved vs last week, be encouraging; if they dropped, be constructive
 - Do NOT invent product names or numbers not present in the data above
 - Each insight must suggest a concrete next step
-
 Return ONLY a raw JSON array with no markdown code fences:
 [
   {
@@ -101,35 +104,62 @@ Return ONLY a raw JSON array with no markdown code fences:
     const payload = {
       contents: [{ parts: [{ text: prompt }] }],
       generationConfig: {
-        temperature: 0.6,
-        responseMimeType: 'application/json',
+        temperature: 0.3,
+        responseMimeType: "application/json",
       },
     };
 
-    const response = await fetch(GEMINI_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
+    // Use v1beta and flash-latest for better compatibility
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${GEMINI_API_KEY}`;
+    
+    console.log(`[AIInsightService] Calling Gemini API...`);
+    
+    let response;
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+    } catch (networkError: any) {
+      console.error('[AIInsightService] Network Error:', networkError);
+      throw new Error(`Network Error: ${networkError.message}`);
+    }
 
     if (!response.ok) {
-      const err = await response.json();
+      const err = await response.json().catch(() => ({}));
+      console.error('[AIInsightService] API Error Response:', JSON.stringify(err, null, 2));
       throw new Error(`Gemini Error: ${err.error?.message || response.statusText}`);
     }
 
     const result = await response.json();
-    const aiText = result.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!aiText) return [];
+    let aiText = result.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!aiText) {
+      console.warn('[AIInsightService] No text in candidates:', result);
+      return [];
+    }
 
-    const parsed: any[] = JSON.parse(aiText.trim());
-    return parsed.map((item, i) => ({
-      id: `insight-${Date.now()}-${i}`,
-      type: (item.type as InsightType) ?? 'general_tip',
-      priority: (item.priority as InsightPriority) ?? 'info',
-      title: item.title ?? 'Business Insight',
-      body: item.body ?? '',
-      action:
-        !item.action || item.action === 'null' ? null : (item.action as InsightAction),
-    }));
+    // Robust parsing: strip markdown code fences if present
+    aiText = aiText.trim();
+    if (aiText.startsWith('```')) {
+      aiText = aiText.replace(/^```(?:json)?/, '').replace(/```$/, '').trim();
+    }
+
+    try {
+      const parsed: any[] = JSON.parse(aiText);
+      return parsed.map((item, i) => ({
+        id: `insight-${Date.now()}-${i}`,
+        type: (item.type as InsightType) ?? 'general_tip',
+        priority: (item.priority as InsightPriority) ?? 'info',
+        title: item.title ?? 'Business Insight',
+        body: item.body ?? '',
+        action:
+          !item.action || item.action === 'null' ? null : (item.action as InsightAction),
+      }));
+    } catch (parseError) {
+      console.error('[AIInsightService] Failed to parse AI response:', aiText);
+      console.error('[AIInsightService] Parse error details:', parseError);
+      throw new Error('Received invalid data format from AI. Please try refreshing.');
+    }
   },
 };
