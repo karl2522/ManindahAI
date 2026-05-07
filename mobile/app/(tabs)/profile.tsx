@@ -310,19 +310,19 @@ export default function OwnerProfileScreen() {
         {/* Management Menu */}
         <View style={styles.menuContainer}>
           <MenuItem 
-            label="Inventory Settings" 
+            label="Stock List" 
             icon="inventory-2" 
             onPress={() => router.push('/(tabs)/inventory')} 
           />
           <MenuItem 
-            label="Monthly Reports" 
+            label="Financial Reports" 
             icon="assessment" 
-            onPress={() => router.push('/(tabs)/insights')} 
+            onPress={() => router.push('/(tabs)/financial_hub')} 
           />
           <MenuItem 
-            label="Store Notifications" 
-            icon="notifications" 
-            onPress={() => Alert.alert('Notifications', 'No new notifications.')} 
+            label="Sales History" 
+            icon="history" 
+            onPress={() => router.push('/sales/history')} 
           />
           <MenuItem 
             label="Edit Store Details" 
