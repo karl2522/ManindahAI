@@ -32,6 +32,7 @@ type FormData = {
   quantity: string;
   category: string;
   image_url: string;
+  low_stock_threshold: string;
 };
 
 const EMPTY_FORM: FormData = {
@@ -41,10 +42,11 @@ const EMPTY_FORM: FormData = {
   quantity: '0',
   category: '',
   image_url: '',
+  low_stock_threshold: '5',
 };
 
 export default function ProductsScreen() {
-  const { store, userId, loading: storeLoading, error: storeError, setStore } = useStore();
+  const { store, userId, loading: storeLoading, error: storeError } = useStore();
   const queryClient = useQueryClient();
   const {
     data: products = [],
@@ -76,7 +78,8 @@ export default function ProductsScreen() {
     setCreatingStore(true);
     try {
       const newStore = await StoreService.create(userId, storeName.trim());
-      setStore(newStore);
+      await queryClient.invalidateQueries({ queryKey: ['store'] });
+      await queryClient.invalidateQueries({ queryKey: ['profile'] });
     } catch (e: any) {
       console.error('[Products] Store creation failed:', e.message);
     } finally {
@@ -99,6 +102,7 @@ export default function ProductsScreen() {
       quantity: String(product.quantity),
       category: product.category ?? '',
       image_url: product.image_url ?? '',
+      low_stock_threshold: String(product.low_stock_threshold),
     });
     setModalVisible(true);
   };
@@ -131,6 +135,7 @@ export default function ProductsScreen() {
         quantity: parseInt(form.quantity, 10) || 0,
         category: form.category.trim() || undefined,
         image_url: form.image_url || undefined,
+        low_stock_threshold: parseInt(form.low_stock_threshold, 10) || 5,
       };
 
       if (onlineManager.isOnline()) {
@@ -158,6 +163,7 @@ export default function ProductsScreen() {
             quantity: payload.quantity,
             category: payload.category ?? null,
             image_url: payload.image_url ?? null,
+            low_stock_threshold: payload.low_stock_threshold ?? 5,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           };

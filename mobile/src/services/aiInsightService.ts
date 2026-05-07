@@ -9,7 +9,7 @@ export type InsightType =
   | 'general_tip';
 
 export type InsightPriority = 'urgent' | 'opportunity' | 'info';
-export type InsightAction = 'restock' | 'promote' | 'review_pricing' | null;
+export type InsightAction = 'restock' | 'review_pricing' | null;
 
 export interface AIInsight {
   id: string;
@@ -97,7 +97,7 @@ Return ONLY a raw JSON array with no markdown code fences:
     "priority": "urgent|opportunity|info",
     "title": "Short title, max 7 words",
     "body": "1 to 2 sentences. Be specific and practical.",
-    "action": "restock|promote|review_pricing|null"
+    "action": "restock|review_pricing|null"
   }
 ]`;
 

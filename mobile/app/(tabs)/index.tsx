@@ -108,7 +108,7 @@ export default function TabsIndex() {
           label="Manual Sale" 
           color={theme.colors.primaryFixed} 
           iconColor={theme.colors.primaryContainer} 
-          onPress={() => Alert.alert('Manual Sale', 'Opening POS interface...')}
+          onPress={() => router.push('/sales/record')}
         />
         <ActionButton 
           icon="receipt-long" 

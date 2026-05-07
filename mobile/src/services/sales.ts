@@ -190,7 +190,7 @@ export const SalesService = {
       .select('*')
       .eq('store_id', store_id)
       .gte('date', startDate)
-      .lte('date', endDate)
+      .lte('date', `${endDate}T23:59:59`)
       .order('date', { ascending: false });
 
     if (error) throw new Error(`Failed to fetch sales by date range: ${error.message}`);

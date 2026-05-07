@@ -86,9 +86,8 @@ export default function OwnerProfileScreen() {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
-      aspect: [16, 9],
-      quality: 0.7,
-      base64: true,
+      aspect: [1, 1],
+      quality: 0.8,
     });
 
     if (!result.canceled && result.assets[0].uri) {
@@ -112,6 +111,7 @@ export default function OwnerProfileScreen() {
     mutationFn: (input: UpdateStoreInput) => StoreService.update(store!.store_id, input),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['store'] });
+      queryClient.invalidateQueries({ queryKey: ['profile'] });
       setShowEditDetailsModal(false);
       Alert.alert('Success', 'Store details updated successfully!');
     },
@@ -323,6 +323,11 @@ export default function OwnerProfileScreen() {
             label="Sales History" 
             icon="history" 
             onPress={() => router.push('/sales/history')} 
+          />
+          <MenuItem 
+            label="View as Customer" 
+            icon="visibility" 
+            onPress={() => store && router.push(`/store/${store.store_id}?isPreview=true`)} 
           />
           <MenuItem 
             label="Edit Store Details" 

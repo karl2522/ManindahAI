@@ -8,7 +8,7 @@ This document provides a summary of the current implementation status of the Man
 - **Navigation**: Expo Router 55
 - **State Management**: TanStack Query (React Query) v5 with Offline Persistence
 - **Backend/DB**: Supabase (PostgreSQL) + Firebase (Google Auth)
-- **AI/ML**: 
+- **AI/ML**:
   - **Insights**: Google Gemini Flash 1.5 (via `AIInsightService`)
   - **OCR**: Google ML Kit (Local) + Google Vision API + Gemini Flash
 - **Styling**: Theme-based Vanilla React Native StyleSheet

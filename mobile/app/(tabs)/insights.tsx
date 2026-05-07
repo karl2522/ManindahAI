@@ -72,7 +72,7 @@ export default function InsightsScreen() {
     const salesByDay: Record<string, number> = {};
     for (const sale of thisWeekSales) {
       const dayKey = (sale.date || '').substring(0, 10);
-      salesByDay[dayKey] = (salesByDay[dayKey] || 0) + sale.total_amount;
+      salesByDay[dayKey] = (salesByDay[dayKey] || 0) + Number(sale.total_amount);
     }
     const maxAmount = Math.max(...Object.values(salesByDay), 1);
     return Array.from({ length: 7 }, (_, i) => {
@@ -88,11 +88,11 @@ export default function InsightsScreen() {
   }, [thisWeekSales, today]);
 
   const thisWeekTotal = useMemo(
-    () => thisWeekSales.reduce((s, sale) => s + sale.total_amount, 0),
+    () => thisWeekSales.reduce((s, sale) => s + Number(sale.total_amount), 0),
     [thisWeekSales]
   );
   const lastWeekTotal = useMemo(
-    () => lastWeekSales.reduce((s, sale) => s + sale.total_amount, 0),
+    () => lastWeekSales.reduce((s, sale) => s + Number(sale.total_amount), 0),
     [lastWeekSales]
   );
   const weeklyTrend =
@@ -378,16 +378,7 @@ function InsightCard({ insight, router }: { insight: AIInsight; router: any }) {
               </Text>
             </TouchableOpacity>
           )}
-          {insight.action === 'promote' && (
-            <TouchableOpacity
-              style={[styles.accentButton, { backgroundColor: theme.colors.tertiaryFixed, marginTop: 12 }]}
-              onPress={() => Alert.alert('Promotion Tip', 'Note this suggestion and plan a promo for this product.')}
-            >
-              <Text style={[theme.typography.button, { color: theme.colors.onTertiaryFixed }]}>
-                Plan a Promo
-              </Text>
-            </TouchableOpacity>
-          )}
+
         </View>
       </View>
     </View>
@@ -578,18 +569,6 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  accentButton: {
-    flex: 1,
-    height: 48,
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#00535B',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 2,
   },
   disclaimerCard: {
     flexDirection: 'row',

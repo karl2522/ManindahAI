@@ -146,7 +146,7 @@ export const CustomerService = {
       rating: row.rating,
       comment: row.comment,
       created_at: row.created_at,
-      author_name: row.users?.name ?? null,
+      author_name: (Array.isArray(row.users) ? row.users[0]?.name : row.users?.name) ?? null,
     }));
   },
 
@@ -167,6 +167,15 @@ export const CustomerService = {
 
     if (error) throw new Error(`Failed to create review: ${error.message}`);
 
+    // Trigger notification for the store owner (Infrastructure hook)
+    import('./notificationService').then(({ NotificationService }) => {
+      NotificationService.scheduleLocalNotification(
+        'Bagong Review!',
+        `Nakakuha ka ng ${data.rating}-star review para sa iyong store.`,
+        { url: `/(tabs)/profile` } // Owners check reviews in profile/store view
+      );
+    });
+
     return {
       review_id: data.review_id,
       user_id: data.user_id,
@@ -174,7 +183,7 @@ export const CustomerService = {
       rating: data.rating,
       comment: data.comment,
       created_at: data.created_at,
-      author_name: data.users?.name ?? null,
+      author_name: (Array.isArray(data.users) ? (data.users[0] as any)?.name : (data.users as any)?.name) ?? null,
     };
   },
 

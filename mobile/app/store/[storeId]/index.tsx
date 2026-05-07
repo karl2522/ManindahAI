@@ -12,7 +12,7 @@ import { theme } from '../../../src/theme/theme';
 
 export default function StoreProfileScreen() {
   const router = useRouter();
-  const { storeId } = useLocalSearchParams<{ storeId: string }>();
+  const { storeId, isPreview } = useLocalSearchParams<{ storeId: string; isPreview?: string }>();
   const [isFavorite, setIsFavorite] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
@@ -88,8 +88,18 @@ export default function StoreProfileScreen() {
       </View>
 
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
+        {isPreview === 'true' && (
+          <View style={styles.previewBanner}>
+            <MaterialIcons name="visibility" size={16} color="#fff" />
+            <Text style={styles.previewText}>PREVIEW MODE: VIEWING AS CUSTOMER</Text>
+          </View>
+        )}
         {store.image_url ? (
-          <TouchableOpacity activeOpacity={0.9} onPress={() => setSelectedImage(store.image_url!)}>
+          <TouchableOpacity 
+            activeOpacity={0.9} 
+            onPress={() => setSelectedImage(store.image_url!)}
+            disabled={isPreview === 'true'}
+          >
             <Image source={{ uri: store.image_url }} style={styles.headerImage} />
           </TouchableOpacity>
         ) : (
@@ -112,10 +122,15 @@ export default function StoreProfileScreen() {
               </View>
             </View>
             <View style={styles.headerActions}>
-              <TouchableOpacity style={styles.ratingBadge} onPress={() => router.push(`/store/${store.store_id}/reviews`)}>
+              <TouchableOpacity 
+                style={styles.ratingBadge} 
+                onPress={() => router.push(`/store/${store.store_id}/reviews`)}
+                disabled={isPreview === 'true'}
+              >
                 <MaterialIcons name="star" size={16} color={theme.colors.secondary} />
                 <Text style={styles.ratingText}>{(store.rating || 0).toFixed(1)}</Text>
               </TouchableOpacity>
+            {isPreview !== 'true' && (
               <TouchableOpacity
                 style={styles.favoriteButton}
                 onPress={async () => {
@@ -134,6 +149,7 @@ export default function StoreProfileScreen() {
                   color={isFavorite ? theme.colors.secondary : theme.colors.outline}
                 />
               </TouchableOpacity>
+            )}
             </View>
           </View>
 
@@ -147,6 +163,7 @@ export default function StoreProfileScreen() {
                 placeholderTextColor={theme.colors.outline}
                 value={searchQuery}
                 onChangeText={setSearchQuery}
+                editable={isPreview !== 'true'}
               />
             </View>
           </View>
@@ -163,7 +180,7 @@ export default function StoreProfileScreen() {
                       key={item.product_id} 
                       style={styles.productCard}
                       onPress={() => item.image_url && setSelectedImage(item.image_url)}
-                      disabled={!item.image_url}
+                      disabled={isPreview === 'true' || !item.image_url}
                     >
                       <View style={styles.productImageContainer}>
                         {item.image_url ? (
@@ -195,15 +212,27 @@ export default function StoreProfileScreen() {
       </ScrollView>
 
       <View style={styles.bottomNav}>
-        <TouchableOpacity style={styles.navItem} onPress={() => router.push('/(customer)')}>
-          <MaterialIcons name="map" size={22} color={theme.colors.primaryContainer} />
-          <Text style={styles.navLabelActive}>Explore</Text>
+        <TouchableOpacity 
+          style={styles.navItem} 
+          onPress={() => router.push('/(customer)')}
+          disabled={isPreview === 'true'}
+        >
+          <MaterialIcons name="map" size={22} color={isPreview === 'true' ? theme.colors.outline : theme.colors.primaryContainer} />
+          <Text style={isPreview === 'true' ? styles.navLabel : styles.navLabelActive}>Explore</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem} onPress={() => router.push('/(customer)/saved')}>
+        <TouchableOpacity 
+          style={styles.navItem} 
+          onPress={() => router.push('/(customer)/saved')}
+          disabled={isPreview === 'true'}
+        >
           <MaterialIcons name="favorite-border" size={22} color={theme.colors.outline} />
           <Text style={styles.navLabel}>Saved</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.navItem} onPress={() => router.push('/(customer)/profile')}>
+        <TouchableOpacity 
+          style={styles.navItem} 
+          onPress={() => router.push('/(customer)/profile')}
+          disabled={isPreview === 'true'}
+        >
           <MaterialIcons name="person-outline" size={22} color={theme.colors.outline} />
           <Text style={styles.navLabel}>Profile</Text>
         </TouchableOpacity>
@@ -278,11 +307,11 @@ const styles = StyleSheet.create({
   },
   headerImage: {
     width: '100%',
-    height: 220,
+    height: 300,
   },
   headerPlaceholder: {
     width: '100%',
-    height: 220,
+    height: 300,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: theme.colors.surfaceContainerLow,
@@ -498,5 +527,19 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.5)',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  previewBanner: {
+    backgroundColor: theme.colors.primaryContainer,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 8,
+    gap: 8,
+  },
+  previewText: {
+    ...theme.typography.labelMedium,
+    color: '#fff',
+    fontWeight: '800',
+    letterSpacing: 1,
   },
 });

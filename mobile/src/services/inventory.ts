@@ -42,7 +42,7 @@ export const InventoryService = {
 
     const { data: current, error: fetchError } = await supabase
       .from('products')
-      .select('quantity')
+      .select('quantity, low_stock_threshold, name')
       .eq('product_id', product_id)
       .single();
 
@@ -56,6 +56,18 @@ export const InventoryService = {
       .eq('product_id', product_id);
 
     if (updateError) throw new Error(`Failed to update quantity: ${updateError.message}`);
+
+    // Check for low stock alert
+    const threshold = current.low_stock_threshold ?? LOW_STOCK_THRESHOLD;
+    if (quantity_changed < 0 && newQuantity <= threshold) {
+      import('./notificationService').then(({ NotificationService }) => {
+        NotificationService.scheduleLocalNotification(
+          'Kulang sa Stocks!',
+          `Ang item na "${current.name}" ay may ${newQuantity} na lang na stock.`,
+          { url: '/(tabs)/inventory' }
+        );
+      });
+    }
   },
 
   /**

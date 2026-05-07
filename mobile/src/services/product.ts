@@ -9,6 +9,7 @@ export type Product = {
   quantity: number;
   category: string | null;
   image_url: string | null;
+  low_stock_threshold: number;
   created_at: string;
   updated_at: string;
 };
@@ -21,6 +22,7 @@ export type CreateProductInput = {
   quantity: number;
   category?: string;
   image_url?: string;
+  low_stock_threshold?: number;
 };
 
 export type UpdateProductInput = Partial<Omit<CreateProductInput, 'store_id'>>;

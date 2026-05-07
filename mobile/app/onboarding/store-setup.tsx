@@ -4,6 +4,7 @@ import { MaterialIcons } from '@expo/vector-icons';
 import { Stack, useRouter } from 'expo-router';
 import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
+import { useQueryClient } from '@tanstack/react-query';
 import { theme } from '../../src/theme/theme';
 import { useStore } from '../../src/hooks/useStore';
 import { StoreService } from '../../src/services/store';
@@ -21,7 +22,8 @@ const WebViewComponent = Platform.OS === 'web'
 
 export default function StoreSetupScreen() {
   const router = useRouter();
-  const { userId, setStore } = useStore();
+  const { userId, loading: storeLoading, error: storeError } = useStore();
+  const queryClient = useQueryClient();
   const [storeName, setStoreName] = useState('');
   const [address, setAddress] = useState('');
   const [contactNumber, setContactNumber] = useState('');
@@ -194,7 +196,10 @@ export default function StoreSetupScreen() {
 
     setSaving(true);
     try {
-      const created = await StoreService.create(userId, storeName.trim());
+      const newStore = await StoreService.create(userId, storeName.trim());
+      await queryClient.invalidateQueries({ queryKey: ['store'] });
+      await queryClient.invalidateQueries({ queryKey: ['profile'] });
+      
       let uploadedImageUrl: string | null = null;
       if (imageAsset?.uri) {
         setUploadingImage(true);
@@ -205,7 +210,7 @@ export default function StoreSetupScreen() {
           const fileExt = imageAsset.fileName?.split('.').pop()
             || imageAsset.mimeType?.split('/')[1]
             || 'jpg';
-          const filePath = `${created.store_id}/${Date.now()}.${fileExt}`;
+          const filePath = `${newStore.store_id}/${Date.now()}.${fileExt}`;
 
           const { error: uploadError } = await supabase
             .storage
@@ -239,12 +244,15 @@ export default function StoreSetupScreen() {
         close_time: closeTime.trim() || null,
         auto_close: autoClose,
       };
-      const updated = await StoreService.update(created.store_id, updatePayload);
+      const updated = await StoreService.update(newStore.store_id, updatePayload);
       
       // Update user role to 'owner'
       await UserService.addRole(userId, 'owner');
       
-      setStore(updated);
+      // Invalidate queries to refresh the store globally
+      await queryClient.invalidateQueries({ queryKey: ['store'] });
+      await queryClient.invalidateQueries({ queryKey: ['profile'] });
+      
       router.replace('/(tabs)');
     } catch (e: any) {
       Alert.alert('Error', e.message);
