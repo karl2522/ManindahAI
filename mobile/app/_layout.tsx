@@ -7,7 +7,12 @@ import { queryClient, asyncStoragePersister } from '../src/lib/queryClient';
 import { flushOutbox } from '../src/services/syncService';
 import { SyncBadge } from '../src/components/SyncBadge';
 import { NotificationService } from '../src/services/notificationService';
+import * as SplashScreen from 'expo-splash-screen';
+import { AnimatedSplashScreen } from '../src/components/AnimatedSplashScreen';
 import { useStore } from '../src/hooks/useStore';
+
+// Keep the splash screen visible while we fetch resources
+SplashScreen.preventAutoHideAsync().catch(() => {});
 
 /**
  * Handles notification registration and listeners within the Query context.
@@ -49,6 +54,15 @@ function NotificationHandler() {
 
 export default function RootLayout() {
   const [isReady, setIsReady] = useState(Platform.OS !== 'web');
+  const [showAnimatedSplash, setShowAnimatedSplash] = useState(true);
+
+  useEffect(() => {
+    if (isReady) {
+      // Hide the native splash screen as soon as the app is ready
+      // Our custom AnimatedSplashScreen will take over from here
+      SplashScreen.hideAsync().catch(() => {});
+    }
+  }, [isReady]);
 
   useEffect(() => {
     // Polyfill for Barcode Detection API on web
@@ -98,6 +112,9 @@ export default function RootLayout() {
         />
         <Stack.Screen name="+not-found" />
       </Stack>
+      {showAnimatedSplash && (
+        <AnimatedSplashScreen onAnimationEnd={() => setShowAnimatedSplash(false)} />
+      )}
     </PersistQueryClientProvider>
   );
 }

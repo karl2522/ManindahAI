@@ -1,81 +1,47 @@
-# ManindahAI
+# <img src="../prompteng/design/logo/ManindahAI-logo-nobg.png" width="100" /> ManindahAI
+**Empowering local Sari-Sari stores with AI-driven Digital Transformation.**
 
-## Problem Statement
-
-Sari-sari store owners often struggle with manual, handwritten calculations of their daily and monthly revenue. This process is prone to human error, even with multiple manual checks, leading to inaccurate financial records and potential debt. Furthermore, poor inventory tracking results in stockouts of essential goods, such as canned products, driving customers to find cheaper or more reliable alternatives in nearby locations.
-
-## Introduction: ManindahAI
-
-ManindahAI addresses the financial literacy of Filipino sari-sari store owners by developing an **offline-first mobile application**. The app allows owners to manage products, calculate profits, and track inventory even without an active internet connection. Customers can locate nearby stores and view product availability.
-
-## Project Scope
-
-The project aims to empower sari-sari store owners with digital tools for financial management and inventory tracking, while providing customers with a seamless way to find products in their local community.
-
-## Features
-
-### Sari-Sari Store Owner Side
-
-- **Offline-First Management**: Work with product lists and inventory without needing internet access.
-- **Product Management**: Create and manage product lists with pricing and quantity.
-- **Inventory Management**: Track stock levels and receive low-stock alerts.
-- **Financial Tracking**: Log sales, expenses (rent, utilities, etc.), and view profit/loss summaries.
-- **AI Suggestions**: Receive actionable insights based on sales patterns (requires sync).
-- **OCR Integration**: Scan supplier receipts to auto-create product lists, and scan handwritten daily sales records to calculate totals.
-- **Supplier Comparison**: Compare prices from different suppliers to maximize profit.
-- **Store Creation**: Create and manage store profiles, can also add location of store.
-
-### Customer Side
-
-- **Store Locator**: Search for products and find nearby sari-sari stores.
-- **Community Remarks**: Provide feedback, ratings, and reviews for stores.
-- **Customer can become as Sari-Sari Store Owner**: When the customer account decided to become as Seller and verified as a Sari-Sari Store owner, they can add products to the app.
-
-### Future
-
-- **Customer Chatbot**: AI-powered assistant to help customers find products. - we will later for this.
-
-### Moderator Side (-later on for web-)
-
-- **Account & Store Management**: Manage user accounts and store listings.
-- **Content Moderation**: Review and moderate community remarks.
+ManindahAI is a mobile-first platform designed specifically for **Filipino Sari-Sari store owners**. We combine a simple user experience with powerful backend automation to help local micro-merchants digitize their inventory, track finances, and grow their community presence.
 
 ---
 
-## Technical Stack
-
-- **Framework**: [React Native Expo](https://expo.dev/)
-- **Language**: [TypeScript](https://www.typescriptlang.org/)
-- **Database**: [Supabase](https://supabase.com) (with Offline Sync)
-- **Authentication**: [Firebase](https://firebase.google.com/)
-- **Package Manager**: [npm](https://www.npmjs.com/)
+## 🎯 The Vision
+For most **Filipino Sari-Sari store owners**, operations still rely on manual ledgers and guesswork. **ManindahAI** provides a digital backbone—giving these local merchants access to high-end retail tools like real-time inventory tracking and automated data entry through their smartphones.
 
 ---
 
-## Getting Started
+## 🚀 Key Features
+*   **Smart Inventory Management**: Real-time stock tracking with "Low Stock" alerts to ensure the store never runs out of essentials.
+*   **AI-Powered OCR Scanning**: Uses the device camera to instantly parse product barcodes and supply receipts, eliminating manual data entry.
+*   **Financial Insights Hub**: Automated sales logging and profit/loss visualization for better financial decision-making.
+*   **Geospatial Store Locator**: Pins store locations on a community map, increasing visibility for local customers.
+*   **Trust & Community Reviews**: A built-in feedback system that bridges the gap between store owners and their regular customers.
 
-### Step 1: Install Dependencies
+---
 
+## 🛠️ Technical Architecture (For Developers)
+ManindahAI is built for performance, scalability, and resilience in variable network conditions.
+
+*   **Frontend**: React Native (Expo) - Shared codebase for iOS & Android with a focus on smooth UI/UX.
+*   **Backend-as-a-Service**: Supabase (PostgreSQL) - Handles real-time data synchronization, secure storage, and authentication.
+*   **Authentication**: Hybrid implementation using Firebase and Supabase for robust user management.
+*   **State Management**: Optimized with TanStack Query (React Query) for efficient caching and "Offline-First" capabilities.
+*   **OCR Pipeline**: Custom integration for automated image recognition and data extraction.
+
+---
+
+## 🏗️ Getting Started
 ```bash
+# Install dependencies
 npm install
+
+# Start the development server
+npx expo start
 ```
 
-### Step 2: Start the App
+---
 
-Start the Expo development server:
-
-```bash
-npm start
-```
-
-### Step 3: Run on a Device or Emulator
-
-Once the server is running, you can choose how to launch the app:
-
-- **Physical Device**: Download the **Expo Go** app from the App Store or Google Play, and scan the QR code displayed in the terminal.
-- **Android Emulator**: Press `a` in the terminal to launch the app on an active Android emulator.
-- **iOS Simulator**: Press `i` in the terminal to launch the app on an active iOS simulator (requires macOS).
-
-## Learn More
-
-Check out the `AGENTS.md` file for project guidelines and coding standards.
+## 🏁 Strategic Edge
+1.  **Low Barrier to Entry**: Designed for non-technical users while maintaining high-end security.
+2.  **Scalable Data Model**: Architecture is ready to support thousands of concurrent micro-merchants.
+3.  **Social Impact**: Directly addresses the digital divide in the Filipino micro-retail sector.

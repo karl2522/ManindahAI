@@ -270,8 +270,6 @@ export default function StoreSetupScreen() {
       longitude: markerPosition?.longitude || null,
     };
 
-    console.log('[StoreSetup] Submitting store setup with payload:', payload);
-
     setIsFinalizing(false);
     setSaving(true);
     try {
