@@ -6,7 +6,6 @@ import { useQuery } from '@tanstack/react-query';
 import { useFocusEffect } from '@react-navigation/native';
 import { useNetInfo } from '@react-native-community/netinfo';
 import { theme } from '../../src/theme/theme';
-import { AuthService } from '../../src/services/auth';
 import { useStore } from '../../src/hooks/useStore';
 import { InventoryService } from '../../src/services/inventory';
 import { SalesService } from '../../src/services/sales';
@@ -62,17 +61,25 @@ export default function TabsIndex() {
               </View>
             </View>
           ),
-          headerRight: () => (
-            <TouchableOpacity style={styles.headerIconButton}>
-              <MaterialIcons
-                name={isOnline ? 'cloud-done' : 'cloud-off'}
-                size={24}
-                color={isOnline ? theme.colors.tertiaryContainer : theme.colors.primaryContainer}
-              />
-            </TouchableOpacity>
-          ),
         }}
       />
+
+      {/* Setup Banner (if location missing) */}
+      {(!store?.latitude || !store?.longitude) && (
+        <TouchableOpacity 
+          style={styles.setupBanner} 
+          onPress={() => router.push('/(tabs)/store_location')}
+        >
+          <View style={styles.setupIconBox}>
+            <MaterialIcons name="add-location-alt" size={24} color={theme.colors.onPrimary} />
+          </View>
+          <View style={styles.setupTextContent}>
+            <Text style={styles.setupTitle}>Set Store Location</Text>
+            <Text style={styles.setupSubtitle}>Help customers find your store on the map.</Text>
+          </View>
+          <MaterialIcons name="chevron-right" size={24} color={theme.colors.primary} />
+        </TouchableOpacity>
+      )}
 
       {/* Today's Sales Card */}
       <View style={styles.salesCard}>
@@ -164,20 +171,6 @@ export default function TabsIndex() {
         </View>
       )}
 
-      {/* Temporary Logout Button */}
-      <TouchableOpacity 
-        style={[styles.actionButton, { marginTop: 20, backgroundColor: theme.colors.errorContainer, alignSelf: 'stretch', justifyContent: 'center' }]} 
-        onPress={async () => {
-          try {
-            await AuthService.logout();
-            router.replace('/(auth)/login');
-          } catch (e: any) {
-            Alert.alert('Logout Error', e.message);
-          }
-        }}
-      >
-        <Text style={[styles.actionLabel, { color: theme.colors.onErrorContainer, fontSize: 16, textAlign: 'center', width: '100%' }]}>Logout (Temporary)</Text>
-      </TouchableOpacity>
     </ScrollView>
   );
 }
@@ -295,6 +288,42 @@ const styles = StyleSheet.create({
   salesSubtitle: {
     ...theme.typography.bodyMedium,
     color: theme.colors.outline,
+  },
+  setupBanner: {
+    backgroundColor: theme.colors.primaryContainer,
+    borderRadius: theme.borderRadius.xl,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+    borderWidth: 1,
+    borderColor: theme.colors.primary,
+    elevation: 3,
+    shadowColor: theme.colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+  },
+  setupIconBox: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: theme.colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  setupTextContent: {
+    flex: 1,
+  },
+  setupTitle: {
+    ...theme.typography.h3,
+    color: theme.colors.onPrimaryContainer,
+    fontWeight: '700',
+  },
+  setupSubtitle: {
+    ...theme.typography.bodySmall,
+    color: theme.colors.onPrimaryContainer,
+    opacity: 0.8,
   },
   actionGrid: {
     flexDirection: 'row',

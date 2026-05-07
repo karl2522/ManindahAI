@@ -2,7 +2,6 @@ import { Tabs, useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { TouchableOpacity, Alert, Platform, View, Text, StyleSheet } from 'react-native';
 import { useQueryClient } from '@tanstack/react-query';
-import { AuthService } from '../../src/services/auth';
 import { theme } from '../../src/theme/theme';
 import { useStore } from '../../src/hooks/useStore';
 import { SyncBadge } from '../../src/components/SyncBadge';
@@ -24,26 +23,6 @@ export default function TabsLayout() {
     }
   }, [loading, error, roles, store, router]);
 
-  const doLogout = async () => {
-    try {
-      await AuthService.logout();
-      queryClient.clear();
-      router.replace('/(auth)/login');
-    } catch (e: any) {
-      Alert.alert('Error', String(e?.message ?? e));
-    }
-  };
-
-  const handleLogout = () => {
-    if (Platform.OS === 'web') {
-      if (window.confirm('Are you sure you want to log out?')) doLogout();
-      return;
-    }
-    Alert.alert('Logout', 'Are you sure you want to log out?', [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Logout', style: 'destructive', onPress: doLogout },
-    ]);
-  };
 
   return (
     <Tabs
@@ -79,11 +58,6 @@ export default function TabsLayout() {
           <View style={{ marginLeft: 16 }}>
             <SyncBadge />
           </View>
-        ),
-        headerRight: () => (
-          <TouchableOpacity onPress={handleLogout} style={{ marginRight: 16 }}>
-            <MaterialIcons name="logout" size={22} color={theme.colors.primaryContainer} />
-          </TouchableOpacity>
         ),
       }}
     >

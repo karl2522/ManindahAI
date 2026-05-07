@@ -12,14 +12,16 @@ export type Store = {
   latitude: number | null;
   longitude: number | null;
   image_url: string | null;
+  description: string | null;
   open_time: string | null;
   close_time: string | null;
+  auto_close: boolean;
   status: StoreStatus;
   created_at: string;
   updated_at: string;
 };
 
-export type UpdateStoreInput = Partial<Pick<Store, 'store_name' | 'address' | 'contact_number' | 'latitude' | 'longitude' | 'image_url' | 'open_time' | 'close_time' | 'status'>>;
+export type UpdateStoreInput = Partial<Pick<Store, 'store_name' | 'address' | 'contact_number' | 'latitude' | 'longitude' | 'image_url' | 'description' | 'open_time' | 'close_time' | 'auto_close' | 'status'>>;
 
 export const StoreService = {
   /**

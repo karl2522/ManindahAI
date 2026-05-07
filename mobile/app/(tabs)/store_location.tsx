@@ -50,9 +50,8 @@ export default function StoreLocationScreen() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['store'] });
-      Alert.alert('Success', 'Store location updated successfully!', [
-        { text: 'OK', onPress: () => router.push('/(tabs)/profile') }
-      ]);
+      // Redirect immediately to Profile for a smoother mobile flow
+      router.replace('/profile');
     },
     onError: (err: any) => {
       Alert.alert('Error', err.message || 'Failed to update location.');
