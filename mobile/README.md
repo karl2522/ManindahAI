@@ -6,12 +6,14 @@ ManindahAI is a mobile-first platform designed specifically for **Filipino Sari-
 ---
 
 ## 🎯 The Vision
-For most **Filipino Sari-Sari store owners**, operations still rely on manual ledgers and guesswork. **ManindahAI** provides a digital backbone—giving these local merchants access to high-end retail tools like real-time inventory tracking and automated data entry through their smartphones.
+For most **Filipino Sari-Sari store owners**, operations still rely on manual ledgers and guesswork. **ManindahAI** provides a digital backbone—giving these local merchants access to high-end retail tools like real-time inventory tracking and automated data entry through their smartphones. We aim to move the store owner from 'analog exhaustion' to 'digital clarity,' helping them keep their community prices competitive and their family finances stable.
 
 ---
 
 ## 🚀 Key Features
-*   **Smart Inventory Management**: Real-time stock tracking with "Low Stock" alerts to ensure the store never runs out of essentials.
+*   **Smart Inventory & Supply**: Real-time stock tracking with "Low Stock" alerts.
+*   **Customer Visibility**: Digital tracking of sales and customer credit (*Utang*) to stop the silent leak of family profit.
+*   **Gemini-Powered OCR**: Instant, high-accuracy data entry from supply receipts—designed to work even with messy print or poor internet.
 *   **AI-Powered OCR Scanning**: Uses the device camera to instantly parse product barcodes and supply receipts, eliminating manual data entry.
 *   **Financial Insights Hub**: Automated sales logging and profit/loss visualization for better financial decision-making.
 *   **Geospatial Store Locator**: Pins store locations on a community map, increasing visibility for local customers.

@@ -164,6 +164,7 @@ export default function ProductsScreen() {
             category: payload.category ?? null,
             image_url: payload.image_url ?? null,
             low_stock_threshold: payload.low_stock_threshold ?? 5,
+            barcode: null,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           };
