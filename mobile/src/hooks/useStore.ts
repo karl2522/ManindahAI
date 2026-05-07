@@ -1,7 +1,8 @@
 import { auth } from '../lib/firebase';
 import { UserService, UserProfile } from '../services/user';
 import { StoreService, Store } from '../services/store';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect, useState } from 'react';
 
 type UseStoreResult = {
   store: Store | null;
@@ -9,6 +10,7 @@ type UseStoreResult = {
   profile: UserProfile | null;
   roles: string[];
   loading: boolean;
+  isFetching: boolean;
   error: any;
 };
 
@@ -22,6 +24,7 @@ export function useStore(): UseStoreResult {
   const { 
     data: profile, 
     isLoading: loadingProfile, 
+    isFetching: isFetchingProfile,
     error: profileError 
   } = useQuery({
     queryKey: ['profile', firebaseUser?.uid],
@@ -41,12 +44,38 @@ export function useStore(): UseStoreResult {
     staleTime: 1000 * 60 * 5,
   });
 
+  const queryClient = useQueryClient();
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  // Auto-sync if profile is missing but firebase user exists
+  useEffect(() => {
+    const sync = async () => {
+      if (firebaseUser && !profile && !loadingProfile && !profileError && !isSyncing) {
+        setIsSyncing(true);
+        try {
+          await UserService.syncFromFirebase({
+            firebase_uid: firebaseUser.uid,
+            email: firebaseUser.email!,
+            name: firebaseUser.displayName,
+          });
+          queryClient.invalidateQueries({ queryKey: ['profile', firebaseUser.uid] });
+        } catch (e) {
+          console.error('[useStore] Auto-sync failed:', e);
+        } finally {
+          setIsSyncing(false);
+        }
+      }
+    };
+    sync();
+  }, [firebaseUser, profile, loadingProfile, queryClient, isSyncing, profileError]);
+
   return {
     store: store ?? null,
     userId: profile?.user_id ?? null,
     profile: profile ?? null,
     roles: profile?.roles ?? [],
-    loading: loadingProfile || loadingStore,
+    loading: loadingProfile || loadingStore || isSyncing,
+    isFetching: isFetchingProfile,
     error: profileError || storeError,
   };
 }

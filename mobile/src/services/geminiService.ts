@@ -23,17 +23,22 @@ export const GeminiService = {
           {
             parts: [
               {
-                text: `Extract the inventory items from this image. 
-                       If the image is a receipt, extract each line item separately.
-                       If the image is a single product label or package, combine the relevant text (like brand and product name) into a single item.
+                text: `You are an expert inventory data extractor. Extract only saleable inventory items from this image. 
+                       
+                       CRITICAL RULES:
+                       1. IGNORE Table Headers/Column Names: Do not extract text like "Quantity", "Qty", "Description", "Items", "Price", "Amount", "Unit Cost", "Subtotal", or "Total" as products. These are metadata, not inventory items.
+                       2. IGNORE Handwritten Labels: If you see words like "Item name" or "Total amount" written by hand as labels for columns, ignore them.
+                       3. Only extract actual product items (e.g., "Coke 1.5L", "Ariel 70g", "Eggs").
+                       4. If the image is a single product package, extract the product name and brand.
+                       
                        Format the output exactly as a JSON array of objects.
                        Each object must have exactly these keys:
                        "name" (string, the product name),
                        "quantity" (number, default to 1 if not specified),
                        "unitPrice" (number, the price if found, otherwise 0).
-                       Ignore any header, total, tax, or gibberish lines.
+                       
                        If no items are found, return an empty array [].
-                       Do not wrap the response in markdown blocks like \`\`\`json. Return raw JSON.`
+                       Return raw JSON only.`
               },
               {
                 inlineData: {

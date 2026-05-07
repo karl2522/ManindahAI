@@ -1,17 +1,21 @@
 import { View, Text, StyleSheet, TouchableOpacity, TextInput, Alert, Image } from 'react-native';
+import { MaterialIcons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useState } from 'react';
 import { AuthService } from '../../src/services/auth';
 import { useRouter } from 'expo-router';
 
 export default function RegisterScreen() {
+  const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+  const insets = useSafeAreaInsets();
 
   const handleRegister = async () => {
-    if (!email || !password || !confirmPassword) {
+    if (!fullName || !email || !password || !confirmPassword) {
       Alert.alert('Error', 'Please fill in all fields.');
       return;
     }
@@ -26,7 +30,7 @@ export default function RegisterScreen() {
 
     setLoading(true);
     try {
-      await AuthService.registerWithEmail(email, password);
+      await AuthService.registerWithEmail(email, password, fullName);
       router.replace('/(customer)');
     } catch (error: any) {
       Alert.alert('Registration Error', error.message);
@@ -36,7 +40,13 @@ export default function RegisterScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { paddingTop: insets.top }]}>
+      <TouchableOpacity 
+        style={[styles.backButton, { top: insets.top + 10 }]} 
+        onPress={() => router.back()}
+      >
+        <MaterialIcons name="arrow-back" size={24} color="#333" />
+      </TouchableOpacity>
       <Image 
         source={require('../../assets/logo.png')} 
         style={styles.logo} 
@@ -45,6 +55,12 @@ export default function RegisterScreen() {
       <Text style={styles.subtitle}>Sign up to get started</Text>
 
       <View style={styles.inputContainer}>
+        <TextInput
+          style={styles.input}
+          placeholder="Full Name"
+          value={fullName}
+          onChangeText={setFullName}
+        />
         <TextInput
           style={styles.input}
           placeholder="Email"
@@ -91,6 +107,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 20,
     backgroundColor: '#f5f5f5',
+  },
+  backButton: {
+    position: 'absolute',
+    left: 20,
+    zIndex: 10,
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.8)',
   },
   logo: {
     width: 200,

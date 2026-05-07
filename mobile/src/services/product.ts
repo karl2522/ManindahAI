@@ -12,6 +12,7 @@ export type Product = {
   low_stock_threshold: number;
   created_at: string;
   updated_at: string;
+  barcode: string | null;
 };
 
 export type CreateProductInput = {
@@ -23,6 +24,7 @@ export type CreateProductInput = {
   category?: string;
   image_url?: string;
   low_stock_threshold?: number;
+  barcode?: string;
 };
 
 export type UpdateProductInput = Partial<Omit<CreateProductInput, 'store_id'>>;
@@ -38,6 +40,7 @@ export type OCRProductEntry = {
   quantity?: number;
   category?: string;
   image_url?: string;
+  barcode?: string;
 };
 
 export const ProductService = {

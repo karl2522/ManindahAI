@@ -65,11 +65,24 @@ export const UserService = {
     if (fetchError) throw new Error(`Failed to fetch user roles: ${fetchError.message}`);
 
     const current: UserRole[] = data.roles ?? ['customer'];
-    if (current.includes(role)) return;
+    let newRoles: UserRole[];
+    if (role === 'owner') {
+      // When becoming an owner, we replace 'customer' with 'owner' for a cleaner role state
+      newRoles = current.filter(r => r !== 'customer');
+      if (!newRoles.includes('owner')) newRoles.push('owner');
+      
+      // If the roles didn't change (e.g. they were already just 'owner'), we can return
+      if (newRoles.length === current.length && newRoles.every(r => current.includes(r))) {
+        return;
+      }
+    } else {
+      if (current.includes(role)) return;
+      newRoles = [...current, role];
+    }
 
     const { error: updateError } = await supabase
       .from('users')
-      .update({ roles: [...current, role] })
+      .update({ roles: newRoles })
       .eq('user_id', user_id);
 
     if (updateError) throw new Error(`Failed to update roles: ${updateError.message}`);

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Alert, Platform, ActivityIndicator, Animated } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Alert, Platform, ActivityIndicator, Animated, Vibration } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { Stack, useRouter } from 'expo-router';
 import { useIsFocused } from '@react-navigation/native';
@@ -217,6 +217,11 @@ export default function ScanScreen() {
     console.log('Barcode detected:', data);
     setIsProcessing(true);
     setScanned(true);
+    
+    // Tactile feedback for a successful scan
+    if (Platform.OS !== 'web') {
+      Vibration.vibrate(10); 
+    }
 
     try {
       let productName = '';
@@ -322,6 +327,11 @@ export default function ScanScreen() {
         quality: 0.8,
         base64: true,
       });
+
+      // Tactile feedback for shutter capture
+      if (Platform.OS !== 'web') {
+        Vibration.vibrate(20);
+      }
 
       // Check if operation was aborted (user navigated away)
       if (abortControllerRef.current?.signal?.aborted) {

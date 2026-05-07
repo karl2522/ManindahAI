@@ -15,7 +15,7 @@ import {
   Platform,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { Stack, useRouter } from 'expo-router';
+import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import { useStore } from '../../src/hooks/useStore';
@@ -44,6 +44,12 @@ const SORT_OPTIONS: { value: SortOption; label: string }[] = [
 export default function InventoryScreen() {
   const { store, loading: storeLoading, error: storeError } = useStore();
   const router = useRouter();
+  const params = useLocalSearchParams<{ 
+    scannedBarcode?: string; 
+    scannedName?: string; 
+    scannedCategory?: string;
+    scannedSource?: string;
+  }>();
   
   React.useEffect(() => {
     if (!storeLoading && (storeError || !store)) {
@@ -82,6 +88,7 @@ export default function InventoryScreen() {
     category: '',
     quantity: '0',
     image_url: '',
+    barcode: '',
   });
 
   const [saving, setSaving] = useState(false);
@@ -95,7 +102,26 @@ export default function InventoryScreen() {
   useFocusEffect(
     useCallback(() => {
       if (store) refetch();
-    }, [store, refetch])
+      
+      // Handle incoming scanned barcode data
+      if (params.scannedBarcode) {
+        setEditForm({
+          name: params.scannedName || '',
+          selling_price: '',
+          original_price: '',
+          category: params.scannedCategory || '',
+          quantity: '',
+          image_url: '',
+          // @ts-ignore - adding barcode to the form state even if not in the interface yet
+          barcode: params.scannedBarcode,
+        });
+        setModalMode('add');
+        setModalVisible(true);
+        
+        // Clear params to avoid reopening on every focus
+        router.setParams({ scannedBarcode: undefined });
+      }
+    }, [store, refetch, params, router])
   );
 
   const filteredProducts = useMemo(() => {
@@ -123,6 +149,7 @@ export default function InventoryScreen() {
       category: '',
       quantity: '',
       image_url: '',
+      barcode: '',
     });
     setModalMode('add');
     setModalVisible(true);
@@ -145,6 +172,7 @@ export default function InventoryScreen() {
       category: product.category || '',
       quantity: String(product.quantity),
       image_url: product.image_url || '',
+      barcode: product.barcode || '',
     });
     setModalMode('edit');
     setModalVisible(true);
@@ -252,6 +280,7 @@ export default function InventoryScreen() {
           quantity: parseInt(editForm.quantity, 10) || 0,
           category: editForm.category.trim() || undefined,
           image_url: editForm.image_url || undefined,
+          barcode: editForm.barcode.trim() || undefined,
         };
         if (!newPayload.name) throw new Error('Product name is required');
         
@@ -274,6 +303,7 @@ export default function InventoryScreen() {
           original_price: parseFloat(editForm.original_price) || 0,
           category: editForm.category.trim() || undefined,
           image_url: editForm.image_url || undefined,
+          barcode: editForm.barcode.trim() || undefined,
         };
 
         updateProductMutation.mutate({
@@ -549,6 +579,15 @@ export default function InventoryScreen() {
                     placeholder="e.g. Beverages"
                     value={editForm.category}
                     onChangeText={(v: string) => setEditForm((f: typeof editForm) => ({ ...f, category: v }))}
+                  />
+
+                  <Text style={[theme.typography.bodyLarge, { color: theme.colors.onSurface, fontWeight: '500', marginBottom: 8, marginTop: 20 }]}>Barcode (UPC/EAN)</Text>
+                  <TextInput
+                    style={[styles.modalInput, theme.typography.bodyLarge, { borderColor: theme.colors.outlineVariant }]}
+                    placeholder="e.g. 74848574738"
+                    value={editForm.barcode}
+                    onChangeText={(v: string) => setEditForm((f: typeof editForm) => ({ ...f, barcode: v }))}
+                    keyboardType="number-pad"
                   />
 
                   {modalMode === 'add' && (

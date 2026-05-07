@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, Alert, Platform, Image, ScrollView, Modal, ActivityIndicator, Switch } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Stack, useRouter } from 'expo-router';
+import { useNavigation } from '@react-navigation/native';
 import * as Location from 'expo-location';
 import * as ImagePicker from 'expo-image-picker';
 import { useQueryClient } from '@tanstack/react-query';
@@ -10,6 +11,7 @@ import { useStore } from '../../src/hooks/useStore';
 import { StoreService } from '../../src/services/store';
 import { UserService } from '../../src/services/user';
 import { supabase } from '../../src/lib/supabase';
+import { auth } from '../../src/lib/firebase';
 
 type MapPoint = { latitude: number; longitude: number };
 
@@ -22,9 +24,11 @@ const WebViewComponent = Platform.OS === 'web'
 
 export default function StoreSetupScreen() {
   const router = useRouter();
-  const { userId, loading: storeLoading, error: storeError } = useStore();
+  const navigation = useNavigation();
+  const { userId, profile, loading: storeLoading, isFetching, error: storeError } = useStore();
   const queryClient = useQueryClient();
   const [storeName, setStoreName] = useState('');
+  const [ownerName, setOwnerName] = useState('');
   const [address, setAddress] = useState('');
   const [contactNumber, setContactNumber] = useState('');
   const [openTime, setOpenTime] = useState('');
@@ -41,9 +45,12 @@ export default function StoreSetupScreen() {
   const [tempMarkerPosition, setTempMarkerPosition] = useState<MapPoint | null>(null);
   const [showTimePicker, setShowTimePicker] = useState<'open' | 'close' | null>(null);
   const [autoClose, setAutoClose] = useState(false);
+  const [isFinalizing, setIsFinalizing] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
   const isValidPhilippineNumber = (value: string) => {
     const normalized = value.replace(/[\s-]/g, '');
-    return /^(\+63|0)9\d{9}$/.test(normalized);
+    // Strictly enforce standard 11-digit PH mobile format starting with 09
+    return /^09\d{9}$/.test(normalized);
   };
 
   const handlePickImage = async () => {
@@ -100,6 +107,13 @@ export default function StoreSetupScreen() {
     resolveLocation();
   }, []);
 
+  // Sync profile name to ownerName state when loaded
+  useEffect(() => {
+    if (profile?.name && !ownerName) {
+      setOwnerName(profile.name);
+    }
+  }, [profile?.name]);
+
   const selectedPoint = markerPosition ?? mapCenter;
   const selectedCoordinates = useMemo(() => selectedPoint, [selectedPoint]);
 
@@ -149,37 +163,99 @@ export default function StoreSetupScreen() {
   };
 
   const handleOpenPinLocation = () => {
+    console.log('[StoreSetup] Opening pin location modal');
     setTempMarkerPosition(markerPosition || mapCenter);
     setShowMapModal(true);
   };
 
+  const handlePreSave = async () => {
+    if (!userId || !storeName.trim()) return;
+    
+    try {
+      console.log('[StoreSetup] Pre-saving draft...');
+      const store = await StoreService.create(userId, storeName.trim());
+      
+      const draftPayload = {
+        address: address.trim() || null,
+        contact_number: contactNumber.trim() || null,
+        latitude: markerPosition?.latitude || null,
+        longitude: markerPosition?.longitude || null,
+        open_time: openTime || null,
+        close_time: closeTime || null,
+        auto_close: autoClose,
+      };
+      
+      await StoreService.update(store.store_id, draftPayload);
+      console.log('[StoreSetup] Draft saved successfully');
+    } catch (e) {
+      console.warn('[StoreSetup] Pre-save failed:', e);
+    }
+  };
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('beforeRemove', (e) => {
+      // Don't intercept if we're already navigating away after a full success
+      // or if there's nothing to save
+      if (saving || isFinalizing || !storeName.trim()) {
+        return;
+      }
+
+      e.preventDefault();
+
+      Alert.alert(
+        'Save Progress?',
+        'You have unsaved changes. Would you like to save your progress as a draft before leaving?',
+        [
+          { 
+            text: 'Discard', 
+            style: 'destructive', 
+            onPress: () => navigation.dispatch(e.data.action) 
+          },
+          { 
+            text: 'Save & Exit', 
+            onPress: async () => {
+              await handlePreSave();
+              navigation.dispatch(e.data.action);
+            } 
+          },
+          { 
+            text: 'Cancel', 
+            style: 'cancel', 
+            onPress: () => {} 
+          },
+        ]
+      );
+    });
+
+    return unsubscribe;
+  }, [navigation, saving, storeName, address, contactNumber, markerPosition, openTime, closeTime, autoClose]);
+
   const handleSubmit = async () => {
+    if (saving || uploadingImage) return;
+    
     if (!userId) {
       Alert.alert('Error', 'You must be logged in to create a store.');
       return;
     }
-    if (!storeName.trim()) {
-      Alert.alert('Validation', 'Sari-Sari Store Name is required.');
-      return;
-    }
-    if (!address.trim()) {
-      Alert.alert('Validation', 'Store address is required.');
-      return;
-    }
+
+    const newErrors: Record<string, string> = {};
+    if (!storeName.trim()) newErrors.storeName = 'Store name is required';
+    if (!ownerName.trim()) newErrors.ownerName = 'Owner name is required';
+    if (!address.trim()) newErrors.address = 'Store address is required';
     if (!contactNumber.trim()) {
-      Alert.alert('Validation', 'Contact number is required.');
-      return;
+      newErrors.contactNumber = 'Contact number is required';
+    } else if (!isValidPhilippineNumber(contactNumber.trim())) {
+      newErrors.contactNumber = 'Enter a valid PH mobile number';
     }
-    if (!isValidPhilippineNumber(contactNumber.trim())) {
-      Alert.alert('Validation', 'Enter a valid PH mobile number (e.g. 09XXXXXXXXX or +639XXXXXXXXX).');
-      return;
-    }
-    if (!openTime.trim() || !closeTime.trim()) {
-      Alert.alert('Validation', 'Open and close time are required.');
-      return;
-    }
-    if (!markerPosition) {
-      Alert.alert('Validation', 'Please pin your store location on the map before proceeding.');
+    if (!openTime.trim()) newErrors.openTime = 'Open time is required';
+    if (!closeTime.trim()) newErrors.closeTime = 'Close time is required';
+    if (!markerPosition) newErrors.location = 'Please pin your store location on the map';
+
+    setErrors(newErrors);
+
+    if (Object.keys(newErrors).length > 0) {
+      console.log('[StoreSetup] Validation failed:', newErrors);
+      Alert.alert('Validation', 'Please fill in all required fields and correct the highlighted areas.');
       return;
     }
 
@@ -190,18 +266,25 @@ export default function StoreSetupScreen() {
       open_time: openTime.trim(),
       close_time: closeTime.trim(),
       auto_close: autoClose,
-      latitude: selectedCoordinates?.latitude || null,
-      longitude: selectedCoordinates?.longitude || null,
+      latitude: markerPosition?.latitude || null,
+      longitude: markerPosition?.longitude || null,
     };
 
+    console.log('[StoreSetup] Submitting store setup with payload:', payload);
+
+    setIsFinalizing(false);
     setSaving(true);
     try {
+      console.log('[StoreSetup] Creating store in DB...');
       const newStore = await StoreService.create(userId, storeName.trim());
+      console.log('[StoreSetup] Store created successfully:', newStore.store_id);
+      
       await queryClient.invalidateQueries({ queryKey: ['store'] });
       await queryClient.invalidateQueries({ queryKey: ['profile'] });
       
       let uploadedImageUrl: string | null = null;
       if (imageAsset?.uri) {
+        console.log('[StoreSetup] Starting image upload...');
         setUploadingImage(true);
         try {
           const response = await fetch(imageAsset.uri);
@@ -227,7 +310,9 @@ export default function StoreSetupScreen() {
             .from('store-images')
             .getPublicUrl(filePath);
           uploadedImageUrl = publicData?.publicUrl ?? null;
+          console.log('[StoreSetup] Image uploaded successfully:', uploadedImageUrl);
         } catch (uploadError: any) {
+          console.warn('[StoreSetup] Image upload failed:', uploadError);
           Alert.alert('Image Upload Failed', 'Store created without a photo. You can add it later.');
         } finally {
           setUploadingImage(false);
@@ -237,30 +322,74 @@ export default function StoreSetupScreen() {
       const updatePayload = {
         address: address.trim() || null,
         contact_number: contactNumber.trim() || null,
-        latitude: selectedCoordinates ? selectedCoordinates.latitude : null,
-        longitude: selectedCoordinates ? selectedCoordinates.longitude : null,
+        latitude: markerPosition ? markerPosition.latitude : null,
+        longitude: markerPosition ? markerPosition.longitude : null,
         image_url: uploadedImageUrl,
         open_time: openTime.trim() || null,
         close_time: closeTime.trim() || null,
         auto_close: autoClose,
       };
       const updated = await StoreService.update(newStore.store_id, updatePayload);
+      console.log('[StoreSetup] Store details updated');
       
+      // Update user profile name if changed or provided
+      if (ownerName.trim() && ownerName !== profile?.name) {
+        console.log('[StoreSetup] Updating user profile name...');
+        await UserService.update(userId!, { name: ownerName.trim() });
+      }
+
       // Update user role to 'owner'
-      await UserService.addRole(userId, 'owner');
+      console.log('[StoreSetup] Updating user role to owner...');
+      await UserService.addRole(userId!, 'owner');
       
-      // Invalidate queries to refresh the store globally
-      await queryClient.invalidateQueries({ queryKey: ['store'] });
-      await queryClient.invalidateQueries({ queryKey: ['profile'] });
+      // Manually update the cache to ensure immediate UI transition to 'owner' role
+      const firebaseUid = auth.currentUser?.uid;
+      if (firebaseUid) {
+        queryClient.setQueryData(['profile', firebaseUid], (old: any) => {
+          if (!old) return old;
+          const currentRoles = old.roles || [];
+          // Replace 'customer' with 'owner' for a cleaner role transition
+          const newRoles = currentRoles.filter((r: string) => r !== 'customer');
+          if (!newRoles.includes('owner')) newRoles.push('owner');
+          return {
+            ...old,
+            roles: newRoles
+          };
+        });
+      }
       
+      queryClient.setQueryData(['store', userId], updated);
+
+      // CRITICAL: Refetch and wait to ensure the navigation guard in _layout.tsx sees the 'owner' role
+      console.log('[StoreSetup] Refetching profile for role sync...');
+      await queryClient.refetchQueries({ queryKey: ['profile', auth.currentUser?.uid] });
+      
+      // Give a small grace period for the global state to propagate
+      console.log('[StoreSetup] Final sync grace period...');
+      await new Promise(resolve => setTimeout(resolve, 800));
+      
+      setIsFinalizing(true);
+      console.log('[StoreSetup] Navigating to dashboard...');
       router.replace('/(tabs)');
     } catch (e: any) {
-      Alert.alert('Error', e.message);
+      console.error('[StoreSetup] Submission failed:', e);
+      // Log full error object for remote debugging if needed
+      const errorDetail = e.message || JSON.stringify(e);
+      Alert.alert('Store Launch Failed', `Error: ${errorDetail}`);
     } finally {
       setSaving(false);
       setUploadingImage(false);
     }
   };
+
+  if (storeLoading) {
+    return (
+      <View style={[styles.container, { backgroundColor: theme.colors.background, justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="large" color={theme.colors.primaryContainer} />
+        <Text style={[theme.typography.bodyMedium, { marginTop: 16, color: theme.colors.outline }]}>Loading your profile...</Text>
+      </View>
+    );
+  }
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}> 
@@ -276,28 +405,58 @@ export default function StoreSetupScreen() {
         <Text style={styles.progressText}>50% complete</Text>
 
         <View style={styles.formGroup}>
-          <Text style={styles.label}>Sari-Sari Store Name</Text>
+          <Text style={styles.label}>Owner Full Name *</Text>
           <TextInput
-            style={styles.input}
-            placeholder="Store name"
-            value={storeName}
-            onChangeText={setStoreName}
+            style={[styles.input, errors.ownerName && styles.inputError]}
+            placeholder="Your full name"
+            value={ownerName}
+            onChangeText={(t) => {
+              setOwnerName(t);
+              if (errors.ownerName) setErrors(prev => ({ ...prev, ownerName: '' }));
+            }}
           />
+          {errors.ownerName ? <Text style={styles.errorText}>{errors.ownerName}</Text> : null}
         </View>
 
         <View style={styles.formGroup}>
-          <Text style={styles.label}>Store Address & Location</Text>
+          <Text style={styles.label}>Sari-Sari Store Name *</Text>
           <TextInput
-            style={[styles.input, { height: 60, textAlignVertical: 'top', paddingTop: 12 }]}
+            style={[styles.input, errors.storeName && styles.inputError]}
+            placeholder="Store name"
+            value={storeName}
+            onChangeText={(t) => {
+              setStoreName(t);
+              if (errors.storeName) setErrors(prev => ({ ...prev, storeName: '' }));
+            }}
+          />
+          {errors.storeName ? <Text style={styles.errorText}>{errors.storeName}</Text> : null}
+        </View>
+
+        <View style={styles.formGroup}>
+          <Text style={styles.label}>Store Address & Location *</Text>
+          <TextInput
+            style={[styles.input, { height: 60, textAlignVertical: 'top', paddingTop: 12 }, errors.address && styles.inputError]}
             placeholder="Store physical address"
             value={address}
-            onChangeText={setAddress}
+            onChangeText={(t) => {
+              setAddress(t);
+              if (errors.address) setErrors(prev => ({ ...prev, address: '' }));
+            }}
             multiline
           />
-          <TouchableOpacity style={styles.pinButton} onPress={handleOpenPinLocation}>
+          {errors.address ? <Text style={styles.errorText}>{errors.address}</Text> : null}
+          
+          <TouchableOpacity 
+            style={[styles.pinButton, errors.location && styles.inputError]} 
+            onPress={handleOpenPinLocation}
+          >
             <MaterialIcons name="location-on" size={20} color={theme.colors.onSecondaryContainer} />
-            <Text style={styles.pinButtonText}>Pin Store Location</Text>
+            <Text style={styles.pinButtonText}>
+              {markerPosition ? 'Relocate Store Pin' : 'Pin Store Location'}
+            </Text>
           </TouchableOpacity>
+          {errors.location ? <Text style={styles.errorText}>{errors.location}</Text> : null}
+          
           {markerPosition && (
             <Text style={styles.locationSuccessText}>
               <MaterialIcons name="check-circle" size={14} color={theme.colors.secondary} /> Location Pinned
@@ -306,14 +465,21 @@ export default function StoreSetupScreen() {
         </View>
 
         <View style={styles.formGroup}>
-          <Text style={styles.label}>Contact Number</Text>
+          <Text style={styles.label}>Contact Number *</Text>
           <TextInput
-            style={styles.input}
+            style={[styles.input, errors.contactNumber && styles.inputError]}
             placeholder="09XXXXXXXXX"
             value={contactNumber}
-            onChangeText={setContactNumber}
+            onChangeText={(t) => {
+              // Only allow digits and limit to 11 (standard PH mobile)
+              const cleaned = t.replace(/[^0-9]/g, '').slice(0, 11);
+              setContactNumber(cleaned);
+              if (errors.contactNumber) setErrors(prev => ({ ...prev, contactNumber: '' }));
+            }}
             keyboardType="phone-pad"
+            maxLength={11}
           />
+          {errors.contactNumber ? <Text style={styles.errorText}>{errors.contactNumber}</Text> : null}
         </View>
 
         <View style={styles.formGroup}>
@@ -332,24 +498,32 @@ export default function StoreSetupScreen() {
 
         <View style={styles.formRow}>
           <View style={styles.formGroupHalf}>
-            <Text style={styles.label}>Open Time</Text>
+            <Text style={styles.label}>Open Time *</Text>
             <TouchableOpacity 
-              style={styles.timePickerInput} 
-              onPress={() => setShowTimePicker('open')}
+              style={[styles.timePickerInput, errors.openTime && styles.inputError]} 
+              onPress={() => {
+                setShowTimePicker('open');
+                if (errors.openTime) setErrors(prev => ({ ...prev, openTime: '' }));
+              }}
             >
               <Text style={styles.timePickerText}>{openTime || "08:00 AM"}</Text>
               <MaterialIcons name="expand-more" size={20} color={theme.colors.outline} />
             </TouchableOpacity>
+            {errors.openTime ? <Text style={styles.errorText}>{errors.openTime}</Text> : null}
           </View>
           <View style={styles.formGroupHalf}>
-            <Text style={styles.label}>Close Time</Text>
+            <Text style={styles.label}>Close Time *</Text>
             <TouchableOpacity 
-              style={styles.timePickerInput} 
-              onPress={() => setShowTimePicker('close')}
+              style={[styles.timePickerInput, errors.closeTime && styles.inputError]} 
+              onPress={() => {
+                setShowTimePicker('close');
+                if (errors.closeTime) setErrors(prev => ({ ...prev, closeTime: '' }));
+              }}
             >
               <Text style={styles.timePickerText}>{closeTime || "10:00 PM"}</Text>
               <MaterialIcons name="expand-more" size={20} color={theme.colors.outline} />
             </TouchableOpacity>
+            {errors.closeTime ? <Text style={styles.errorText}>{errors.closeTime}</Text> : null}
           </View>
         </View>
 
@@ -866,6 +1040,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+  },
+  inputError: {
+    borderColor: theme.colors.error,
+    backgroundColor: theme.colors.errorContainer + '10', // Very light red tint
+  },
+  errorText: {
+    ...theme.typography.labelMedium,
+    color: theme.colors.error,
+    marginTop: -4,
   },
   timePickerText: {
     ...theme.typography.bodyMedium,

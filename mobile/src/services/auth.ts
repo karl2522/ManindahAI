@@ -28,6 +28,7 @@ export const AuthService = {
   async registerWithEmail(
     email: string,
     password: string,
+    name?: string,
     roles?: UserRole[]
   ): Promise<{ user: User; profile: UserProfile }> {
     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
@@ -36,7 +37,7 @@ export const AuthService = {
     const profile = await UserService.syncFromFirebase({
       firebase_uid: user.uid,
       email: user.email ?? email,
-      name: user.displayName,
+      name: name || user.displayName,
       roles,
     });
 

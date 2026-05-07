@@ -10,18 +10,25 @@ import { useEffect } from 'react';
 export default function TabsLayout() {
   const router = useRouter();
   const queryClient = useQueryClient();
-  const { roles, loading, error, store } = useStore();
+  const { roles, loading, isFetching, error, store, profile } = useStore();
 
   useEffect(() => {
-    if (loading) return;
-    if (error === 'Not authenticated') {
+    // Wait for initial load and background sync before making navigation decisions
+    if (loading || isFetching) return;
+
+    if (!profile) {
       router.replace('/(auth)/login');
       return;
     }
-    if (!roles.includes('owner') && !store) {
-      router.replace('/(customer)');
+
+    const hasOwnerRole = roles.includes('owner');
+    console.log('[TabsLayout] Guard Check:', { hasOwnerRole, roles, hasStore: !!store });
+    
+    if (!hasOwnerRole) {
+      console.warn('[TabsLayout] DENIED: No owner role found. Redirecting to setup...');
+      router.replace('/onboarding/store-setup');
     }
-  }, [loading, error, roles, store, router]);
+  }, [loading, isFetching, error, roles, store, router, profile]);
 
 
   return (

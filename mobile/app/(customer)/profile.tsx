@@ -33,9 +33,17 @@ export default function ProfileScreen() {
             <MaterialIcons name="person" size={32} color={theme.colors.primaryContainer} />
           </View>
           <View style={styles.profileInfo}>
-            <Text style={styles.profileName}>{profile?.name ?? 'Community Member'}</Text>
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>Community Member</Text>
+            <Text style={styles.profileName}>{profile?.name ?? 'User'}</Text>
+            <View style={[
+              styles.badge, 
+              roles.includes('owner') && { backgroundColor: theme.colors.primaryContainer }
+            ]}>
+              <Text style={[
+                styles.badgeText,
+                roles.includes('owner') && { color: theme.colors.onPrimary }
+              ]}>
+                {roles.includes('owner') ? 'Store Owner' : 'Community Member'}
+              </Text>
             </View>
           </View>
         </View>

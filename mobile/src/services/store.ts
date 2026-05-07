@@ -45,8 +45,17 @@ export const StoreService = {
 
   /**
    * Create a new store for the given user_id.
+   * If a store already exists for this user, it returns the existing one.
    */
   async create(user_id: string, store_name: string): Promise<Store> {
+    // Check if store already exists first to prevent duplicate errors
+    const existing = await this.getByUserId(user_id);
+    if (existing) {
+      console.log(`[StoreService] User ${user_id} already has a store, returning existing.`);
+      await UserService.addRole(user_id, 'owner');
+      return existing;
+    }
+
     const { data, error } = await supabase
       .from('stores')
       .insert({ user_id, store_name })

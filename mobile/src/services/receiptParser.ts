@@ -110,10 +110,22 @@ export const ReceiptParser = {
 
   /**
    * Identifies if a line is likely a header, total, or footer rather than an item.
+   * Now uses word boundary checks to prevent accidental filtering of products (e.g., "Cashew").
    */
   isHeaderOrFooter(text: string): boolean {
-    const noiseWords = ['TOTAL', 'SUBTOTAL', 'TAX', 'THANK YOU', 'DATE', 'CASHIER', 'RECEIPT', 'STORE', 'CASH'];
-    return noiseWords.some(word => text.toUpperCase().includes(word));
+    const noiseWords = [
+      'TOTAL', 'SUBTOTAL', 'TAX', 'THANK YOU', 'DATE', 'CASHIER', 'RECEIPT', 'STORE', 'CASH',
+      'QUANTITY', 'QTY', 'PRICE', 'UNIT', 'AMOUNT', 'ITEMS', 'DESCRIPTION', 'SRN', 'UNIT COST',
+      'ITEM', 'PCS', 'BAL', 'DISC', 'UNITS', 'COST', 'VAT', 'NET', 'GROSS', 'CHANGE', 'TENDERED'
+    ];
+    
+    const upperText = text.toUpperCase();
+    
+    // Check if any noise word exists as a standalone word in the line
+    return noiseWords.some(word => {
+      const regex = new RegExp(`\\b${word}\\b`);
+      return regex.test(upperText);
+    });
   },
 
   /**
