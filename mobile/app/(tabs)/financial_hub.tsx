@@ -418,7 +418,7 @@ export default function FinancialHubScreen() {
                     <Text style={[theme.typography.labelSmall, { color: theme.colors.tertiaryContainer }]}>+₱{bestDay.profit > 0 ? bestDay.profit.toFixed(2) : '0.00'}</Text>
                   </View>
                   
-                  <View style={[styles.vDivider, { backgroundColor: theme.colors.outlineVariant }]} />
+                  <View style={[styles.vDividerInsights, { backgroundColor: theme.colors.outlineVariant }]} />
                   
                   <View style={styles.insightItem}>
                     <MaterialIcons name="payments" size={16} color={theme.colors.error} />
@@ -811,7 +811,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
   },
-  vDivider: {
+  vDividerInsights: {
     width: 1,
     height: '100%',
     opacity: 0.3,
