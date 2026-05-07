@@ -34,6 +34,8 @@ export default function ExploreScreen() {
   const [userLocation, setUserLocation] = useState<Location.LocationObject | null>(null);
   const locationSubscription = useRef<Location.LocationSubscription | null>(null);
   const webViewRef = useRef<any>(null);
+  const [navigatingTo, setNavigatingTo] = useState<StoreSummary | null>(null);
+  const [routingMetrics, setRoutingMetrics] = useState<{ distance: string, duration: number } | null>(null);
 
   const {
     data: stores = [],
@@ -105,7 +107,8 @@ export default function ExploreScreen() {
             webViewRef.current.postMessage(JSON.stringify({
               type: 'locationUpdate',
               lat: loc.coords.latitude,
-              lng: loc.coords.longitude
+              lng: loc.coords.longitude,
+              heading: loc.coords.heading
             }));
           }
         }
@@ -119,6 +122,15 @@ export default function ExploreScreen() {
       }
     };
   }, []);
+
+  useEffect(() => {
+    if (params.routingLat && params.routingLng && !navigatingTo) {
+      const match = stores.find(s => s.store_id === params.storeId);
+      if (match) {
+        setNavigatingTo(match);
+      }
+    }
+  }, [params.routingLat, params.storeId, stores, navigatingTo]);
 
   useEffect(() => {
     if (params.routingLat && params.routingLng && webViewRef.current) {
@@ -150,6 +162,8 @@ export default function ExploreScreen() {
         routingName: selectedStore.store_name,
         storeId: selectedStore.store_id
       });
+      setNavigatingTo(selectedStore);
+      setRoutingMetrics(null);
       webViewRef.current?.postMessage(JSON.stringify({
         type: 'startRouting',
         destLat: selectedStore.latitude,
@@ -159,16 +173,16 @@ export default function ExploreScreen() {
     }
   };
 
-  const handleExitNavigation = () => {
+  const exitNavigation = () => {
     router.setParams({
       routingLat: undefined,
       routingLng: undefined,
       routingName: undefined,
       storeId: undefined
     });
-    if (webViewRef.current) {
-      webViewRef.current.postMessage(JSON.stringify({ type: 'clearRouting' }));
-    }
+    setNavigatingTo(null);
+    setRoutingMetrics(null);
+    webViewRef.current?.postMessage(JSON.stringify({ type: 'clearRouting' }));
     setAutoFollow(true);
   };
 
@@ -203,6 +217,7 @@ export default function ExploreScreen() {
             userLat={userLocation?.coords.latitude}
             userLng={userLocation?.coords.longitude}
             onManualPan={() => setAutoFollow(false)}
+            onRoutingUpdate={(metrics) => setRoutingMetrics(metrics)}
           />
         )}
       </View>
@@ -218,13 +233,19 @@ export default function ExploreScreen() {
         />
       </TouchableOpacity>
 
-      {params.routingLat ? (
+      {navigatingTo ? (
         <View style={styles.navHeader}>
           <View style={styles.navInfo}>
-            <Text style={styles.navTitle}>Navigating to {params.routingName}</Text>
-            <Text style={styles.navSub}>Follow the yellow path</Text>
+            <Text style={styles.navTitle}>Navigating to {navigatingTo.store_name}</Text>
+            {routingMetrics ? (
+              <Text style={styles.navSub}>
+                {routingMetrics.duration} min • {routingMetrics.distance} km remaining
+              </Text>
+            ) : (
+              <Text style={styles.navSub}>Calculating best route...</Text>
+            )}
           </View>
-          <TouchableOpacity style={styles.exitButton} onPress={handleExitNavigation}>
+          <TouchableOpacity style={styles.exitButton} onPress={exitNavigation}>
             <MaterialIcons name="close" size={24} color={theme.colors.onErrorContainer} />
           </TouchableOpacity>
         </View>
@@ -250,7 +271,7 @@ export default function ExploreScreen() {
         </View>
       )}
 
-      {selectedStore && !params.routingLat && (
+      {selectedStore && !navigatingTo && (
         <View style={styles.bottomSheet}>
           <View style={styles.sheetHeaderRow}>
             <View style={styles.sheetTitleBlock}>
@@ -360,6 +381,7 @@ function LeafletNativeMap({
   userLat,
   userLng,
   onManualPan,
+  onRoutingUpdate,
 }: {
   webViewRef: any;
   WebViewComponent: any;
@@ -369,6 +391,7 @@ function LeafletNativeMap({
   userLat?: number;
   userLng?: number;
   onManualPan: () => void;
+  onRoutingUpdate: (metrics: { distance: string, duration: number }) => void;
 }) {
   if (!WebViewComponent) return null;
 
@@ -385,28 +408,37 @@ function LeafletNativeMap({
     <head>
       <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
       <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-      <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
       <style>
         html, body, #map { height: 100%; margin: 0; background: #f8f9fa; }
         .user-location-marker {
-          width: 20px;
-          height: 20px;
-          background: #4285F4;
-          border: 3px solid white;
-          border-radius: 50%;
-          box-shadow: 0 0 8px rgba(66, 133, 244, 0.6);
+          width: 32px;
+          height: 32px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transition: transform 0.3s ease;
           z-index: 1000 !important;
         }
-        .user-location-marker::after {
+        .nav-arrow {
+          width: 0;
+          height: 0;
+          border-left: 10px solid transparent;
+          border-right: 10px solid transparent;
+          border-bottom: 24px solid #4285F4;
+          filter: drop-shadow(0 0 4px rgba(0,0,0,0.3));
+          position: relative;
+        }
+        .nav-arrow::after {
           content: '';
           position: absolute;
-          top: -3px;
-          left: -3px;
-          right: -3px;
-          bottom: -3px;
-          border: 2px solid #4285F4;
-          border-radius: 50%;
-          animation: pulse 2s infinite;
+          top: 18px;
+          left: -10px;
+          width: 0;
+          height: 0;
+          border-left: 10px solid transparent;
+          border-right: 10px solid transparent;
+          border-bottom: 8px solid white;
+          opacity: 0.8;
         }
         @keyframes pulse {
           0% { transform: scale(1); opacity: 1; }
@@ -425,12 +457,41 @@ function LeafletNativeMap({
     <body>
       <div id="map"></div>
       <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-      <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
       <script>
+        function calculateDistance(lat1, lon1, lat2, lon2) {
+          const R = 6371; // km
+          const dLat = (lat2 - lat1) * Math.PI / 180;
+          const dLon = (lon2 - lon1) * Math.PI / 180;
+          const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                    Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                    Math.sin(dLon / 2) * Math.sin(dLon / 2);
+          const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+          return R * c;
+        }
+
+        function calculateBearing(lat1, lon1, lat2, lon2) {
+          const φ1 = lat1 * Math.PI / 180;
+          const φ2 = lat2 * Math.PI / 180;
+          const Δλ = (lon2 - lon1) * Math.PI / 180;
+          const y = Math.sin(Δλ) * Math.cos(φ2);
+          const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+          const θ = Math.atan2(y, x);
+          return (θ * 180 / Math.PI + 360) % 360;
+        }
+
         const map = L.map('map', { 
           zoomControl: false,
-          tap: false // Recommended for mobile
+          attributionControl: false,
+          tap: false
         }).setView([${center.latitude}, ${center.longitude}], 15);
+
+        // Fix Tracking Prevention by overriding default icon logic
+        delete L.Icon.Default.prototype._getIconUrl;
+        L.Icon.Default.mergeOptions({
+          iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon-2x.png',
+          iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-icon.png',
+          shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/images/marker-shadow.png',
+        });
         
         L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
           attribution: '&copy; OpenStreetMap'
@@ -451,7 +512,12 @@ function LeafletNativeMap({
           shadowSize: [48, 48]
         });
 
-        const userIcon = L.divIcon({ className: 'user-location-marker', iconSize: [20, 20], iconAnchor: [10, 10] });
+        const userIcon = L.divIcon({
+          className: 'user-location-marker',
+          html: '<div class="nav-arrow" id="user-arrow"></div>',
+          iconSize: [32, 32],
+          iconAnchor: [16, 16]
+        });
         const startIcon = L.divIcon({ className: 'start-marker', iconSize: [14, 14], iconAnchor: [7, 7] });
         
         let userMarker = null;
@@ -482,20 +548,33 @@ function LeafletNativeMap({
               userMarker.setLatLng(userLatLng);
             }
 
-            // Live Update: Redraw the "snake" if routing is active
-            if (currentRouting && destinationPoint) {
-              currentRouting.setWaypoints([
-                userLatLng,
-                destinationPoint
-              ]);
+            // Smart Wayfinder: Rotate arrow towards destination or use heading
+            const arrowEl = document.getElementById('user-arrow');
+            if (arrowEl) {
+              let rotation = 0;
+              if (destinationPoint) {
+                // Point towards the store
+                rotation = calculateBearing(data.lat, data.lng, destinationPoint.lat, destinationPoint.lng);
+              } else if (data.heading !== undefined && data.heading !== null) {
+                // Point in movement direction
+                rotation = data.heading;
+              }
+              arrowEl.style.transform = 'rotate(' + rotation + 'deg)';
+            }
+
+              // Live Update: Update metrics via Haversine
+              const distKm = calculateDistance(data.lat, data.lng, destinationPoint.lat, destinationPoint.lng).toFixed(1);
+              const durationMin = Math.round(distKm / 0.08); // Assume ~5km/h walking/slow driving
+
+              window.ReactNativeWebView.postMessage(JSON.stringify({
+                type: 'routingUpdate',
+                distance: distKm,
+                duration: durationMin
+              }));
             }
           }
 
           if (data.type === 'clearRouting') {
-            if (currentRouting) {
-              map.removeControl(currentRouting);
-              currentRouting = null;
-            }
             if (startPointMarker) {
               map.removeLayer(startPointMarker);
               startPointMarker = null;
@@ -505,7 +584,6 @@ function LeafletNativeMap({
           }
 
           if (data.type === 'startRouting') {
-            if (currentRouting) map.removeControl(currentRouting);
             if (startPointMarker) map.removeLayer(startPointMarker);
             
             const startLat = userMarker ? userMarker.getLatLng().lat : ${center.latitude};
@@ -514,39 +592,18 @@ function LeafletNativeMap({
             const destLng = data.destLng;
             
             destinationPoint = L.latLng(destLat, destLng);
-            startPointMarker = L.marker([startLat, startLng], { icon: startIcon }).addTo(map);
+            startPointMarker = L.marker([destLat, destLng], { icon: startIcon }).addTo(map);
 
-            // Execute strict Leaflet Routing Machine implementation
-            currentRouting = L.Routing.control({
-              waypoints: [
-                L.latLng(startLat, startLng),
-                destinationPoint
-              ],
-              router: L.Routing.osrmv1({
-                serviceUrl: 'https://router.project-osrm.org/route/v1'
-              }),
-              lineOptions: {
-                styles: [{ color: '#FFD700', weight: 8, opacity: 0.9 }]
-              },
-              createMarker: function() { return null; }, // Hide default markers to use ours
-              addWaypoints: false,
-              routeWhileDragging: false,
-              show: false // Hide the itinerary panel
-            }).addTo(map);
+            const distKm = calculateDistance(startLat, startLng, destLat, destLng).toFixed(1);
+            const durationMin = Math.round(distKm / 0.08);
 
-            currentRouting.on('routesfound', function(e) {
-              const routes = e.routes;
-              const summary = routes[0].summary;
-              const distKm = (summary.totalDistance / 1000).toFixed(1);
-              const durationMin = Math.round(summary.totalTime / 60);
-              
-              L.popup({ closeButton: false, offset: [0, -10] })
-                .setLatLng([startLat, startLng])
-                .setContent('<div style="font-weight:bold; color:#FFB300">' + durationMin + ' min (' + distKm + ' km)</div>')
-                .addTo(map);
-                
-              map.fitBounds(L.geoJSON(routes[0].coordinates).getBounds(), { padding: [80, 80] });
-            });
+            window.ReactNativeWebView.postMessage(JSON.stringify({
+              type: 'routingUpdate',
+              distance: distKm,
+              duration: durationMin
+            }));
+
+            map.fitBounds(L.latLngBounds([startLat, startLng], [destLat, destLng]), { padding: [80, 80] });
           }
         });
       </script>
@@ -563,8 +620,11 @@ function LeafletNativeMap({
       onMessage={(event: any) => {
         try {
           const data = JSON.parse(event.nativeEvent.data);
-          if (data.storeId) onSelect(data.storeId);
           if (data.type === 'manualPan') onManualPan();
+          if (data.type === 'routingUpdate') {
+            onRoutingUpdate({ distance: data.distance, duration: data.duration });
+          }
+          if (data.storeId) onSelect(data.storeId);
         } catch {
           // Ignore
         }
