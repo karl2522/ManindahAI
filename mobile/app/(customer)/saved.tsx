@@ -100,7 +100,7 @@ function StoreCard({ store, onPress, onRemove }: { store: StoreSummary; onPress:
         <Text style={styles.cardTitle}>{store.store_name}</Text>
         <View style={styles.cardMetaRow}>
           <RatingStars rating={store.rating} />
-          <Text style={styles.cardMetaText}>{store.rating.toFixed(1)}</Text>
+          <Text style={styles.cardMetaText}>{(store.rating || 0).toFixed(1)}</Text>
           <Text style={styles.cardDot}>•</Text>
           <Text style={styles.cardMetaText}>~200m</Text>
         </View>

@@ -17,11 +17,19 @@ export default function StoreReviewsScreen() {
   const [comment, setComment] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  const { data: reviews = [], isLoading } = useQuery({
+  const { data: reviews = [], isLoading: loadingReviews } = useQuery({
     queryKey: ['store-reviews', storeId],
     queryFn: () => CustomerService.getReviewsByStoreId(storeId ?? ''),
     enabled: !!storeId,
   });
+
+  const { data: store, isLoading: loadingStore } = useQuery({
+    queryKey: ['store', storeId],
+    queryFn: () => CustomerService.getStoreById(storeId ?? ''),
+    enabled: !!storeId,
+  });
+
+  const isLoading = loadingReviews || loadingStore;
 
   const ratingSummary = useMemo(() => {
     if (reviews.length === 0) return { rating: 0, count: 0 };
@@ -70,10 +78,10 @@ export default function StoreReviewsScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.colors.background }]}> 
-      <Stack.Screen options={{ title: 'Reviews' }} />
+      <Stack.Screen options={{ title: store?.store_name ? `Reviews: ${store.store_name}` : 'Reviews' }} />
 
       <View style={styles.summaryCard}>
-        <Text style={styles.summaryRating}>{ratingSummary.rating.toFixed(1)}</Text>
+        <Text style={styles.summaryRating}>{(ratingSummary.rating || 0).toFixed(1)}</Text>
         <RatingStars rating={ratingSummary.rating} size={18} />
         <Text style={styles.summarySub}>Based on {ratingSummary.count} community reviews</Text>
       </View>

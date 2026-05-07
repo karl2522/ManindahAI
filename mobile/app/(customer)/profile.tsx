@@ -7,7 +7,7 @@ import { theme } from '../../src/theme/theme';
 
 export default function ProfileScreen() {
   const router = useRouter();
-  const { profile } = useStore();
+  const { profile, roles } = useStore();
 
   const doLogout = async () => {
     try {
@@ -49,20 +49,37 @@ export default function ProfileScreen() {
           <MenuItem label="My Reviews" icon="star" onPress={() => router.push('/(customer)/my-reviews')} />
         </View>
 
-        <View style={styles.ctaCard}>
-          <View style={styles.ctaTextBlock}>
-            <Text style={styles.ctaTitle}>Own a Sari-Sari Store?</Text>
-            <Text style={styles.ctaBody}>
-              Digitize your inventory, track sales, and grow your business with ManindahAI.
-            </Text>
+        {roles.includes('owner') ? (
+          <View style={styles.ctaCard}>
+            <View style={styles.ctaTextBlock}>
+              <Text style={styles.ctaTitle}>Your Store is Active</Text>
+              <Text style={styles.ctaBody}>
+                Manage your inventory and track your sales performance.
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={styles.ctaButton}
+              onPress={() => router.push('/(tabs)')}
+            >
+              <Text style={styles.ctaButtonText}>Go to Shop Dashboard</Text>
+            </TouchableOpacity>
           </View>
-          <TouchableOpacity
-            style={styles.ctaButton}
-            onPress={() => router.push('/onboarding/merchant')}
-          >
-            <Text style={styles.ctaButtonText}>Register as Store Owner</Text>
-          </TouchableOpacity>
-        </View>
+        ) : (
+          <View style={styles.ctaCard}>
+            <View style={styles.ctaTextBlock}>
+              <Text style={styles.ctaTitle}>Own a Sari-Sari Store?</Text>
+              <Text style={styles.ctaBody}>
+                Digitize your inventory, track sales, and grow your business with ManindahAI.
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={styles.ctaButton}
+              onPress={() => router.push('/onboarding/merchant')}
+            >
+              <Text style={styles.ctaButtonText}>Register as Store Owner</Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </ScrollView>
 
       <View style={styles.logoutContainer}>

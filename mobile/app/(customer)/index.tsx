@@ -3,7 +3,9 @@ import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Activi
 import { useFocusEffect } from '@react-navigation/native';
 import { useQuery } from '@tanstack/react-query';
 import { MaterialIcons } from '@expo/vector-icons';
-import { Stack, useRouter } from 'expo-router';
+import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
+import * as Location from 'expo-location';
+import { useRef } from 'react';
 import { CustomerService, StoreSummary } from '../../src/services/customer';
 import { ProductService } from '../../src/services/product';
 import { theme } from '../../src/theme/theme';
@@ -27,6 +29,11 @@ export default function ExploreScreen() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedStore, setSelectedStore] = useState<StoreSummary | null>(null);
   const [mapCenter, setMapCenter] = useState<MapRegion>(DEFAULT_CENTER);
+  const [autoFollow, setAutoFollow] = useState(true);
+  const params = useLocalSearchParams<{ routingLat?: string, routingLng?: string, routingName?: string }>();
+  const [userLocation, setUserLocation] = useState<Location.LocationObject | null>(null);
+  const locationSubscription = useRef<Location.LocationSubscription | null>(null);
+  const webViewRef = useRef<any>(null);
 
   const {
     data: stores = [],
@@ -53,7 +60,6 @@ export default function ExploreScreen() {
     if (Platform.OS !== 'web') return;
     require('leaflet/dist/leaflet.css');
   }, []);
-
   useEffect(() => {
     const trimmed = searchQuery.trim();
     const withCoords = stores.find((store) => store.latitude && store.longitude);
@@ -77,6 +83,54 @@ export default function ExploreScreen() {
     }
   }, [searchQuery, stores, selectedStore]);
 
+  useEffect(() => {
+    const startTracking = async () => {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') return;
+
+      const initial = await Location.getCurrentPositionAsync({});
+      setUserLocation(initial);
+
+      locationSubscription.current = await Location.watchPositionAsync(
+        { accuracy: Location.Accuracy.BestForNavigation, distanceInterval: 5 },
+        (loc) => {
+          setUserLocation(loc);
+          if (autoFollow) {
+            setMapCenter({
+              latitude: loc.coords.latitude,
+              longitude: loc.coords.longitude
+            });
+          }
+          if (webViewRef.current) {
+            webViewRef.current.postMessage(JSON.stringify({
+              type: 'locationUpdate',
+              lat: loc.coords.latitude,
+              lng: loc.coords.longitude
+            }));
+          }
+        }
+      );
+    };
+
+    startTracking();
+    return () => {
+      if (locationSubscription.current) {
+        locationSubscription.current.remove();
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    if (params.routingLat && params.routingLng && webViewRef.current) {
+      webViewRef.current.postMessage(JSON.stringify({
+        type: 'startRouting',
+        destLat: parseFloat(params.routingLat),
+        destLng: parseFloat(params.routingLng),
+        destName: params.routingName
+      }));
+    }
+  }, [params.routingLat, params.routingLng, params.routingName]);
+
   const itemChips = useMemo(() => {
     if (!selectedStoreItemsQuery.data) return [];
     return selectedStoreItemsQuery.data.map((item) => item.name).slice(0, 8);
@@ -87,27 +141,45 @@ export default function ExploreScreen() {
     if (match) setSelectedStore(match);
   };
 
-  const handleGetDirections = async () => {
-    if (!selectedStore?.latitude || !selectedStore?.longitude) {
-      Alert.alert('Directions', 'Store location is not available yet.');
-      return;
+  const handleGetDirections = () => {
+    setAutoFollow(true);
+    if (selectedStore?.latitude && selectedStore?.longitude) {
+      router.setParams({
+        routingLat: selectedStore.latitude.toString(),
+        routingLng: selectedStore.longitude.toString(),
+        routingName: selectedStore.store_name,
+        storeId: selectedStore.store_id
+      });
+      webViewRef.current?.postMessage(JSON.stringify({
+        type: 'startRouting',
+        destLat: selectedStore.latitude,
+        destLng: selectedStore.longitude,
+        destName: selectedStore.store_name
+      }));
     }
+  };
 
-    const lat = selectedStore.latitude;
-    const lng = selectedStore.longitude;
-    const label = encodeURIComponent(selectedStore.store_name || 'Store');
-
-    const url = Platform.OS === 'ios'
-      ? `http://maps.apple.com/?daddr=${lat},${lng}&q=${label}`
-      : `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
-
-    const canOpen = await Linking.canOpenURL(url);
-    if (!canOpen) {
-      Alert.alert('Directions', 'Unable to open maps on this device.');
-      return;
+  const handleExitNavigation = () => {
+    router.setParams({
+      routingLat: undefined,
+      routingLng: undefined,
+      routingName: undefined,
+      storeId: undefined
+    });
+    if (webViewRef.current) {
+      webViewRef.current.postMessage(JSON.stringify({ type: 'clearRouting' }));
     }
+    setAutoFollow(true);
+  };
 
-    await Linking.openURL(url);
+  const handleRecenter = () => {
+    if (userLocation) {
+      setAutoFollow(true);
+      setMapCenter({
+        latitude: userLocation.coords.latitude,
+        longitude: userLocation.coords.longitude
+      });
+    }
   };
 
   return (
@@ -123,27 +195,54 @@ export default function ExploreScreen() {
           />
         ) : (
           <LeafletNativeMap
+            webViewRef={webViewRef}
             WebViewComponent={WebViewComponent}
             stores={stores}
             center={mapCenter}
             onSelect={handleMapSelect}
+            userLat={userLocation?.coords.latitude}
+            userLng={userLocation?.coords.longitude}
+            onManualPan={() => setAutoFollow(false)}
           />
         )}
       </View>
 
-      <View style={styles.searchContainer}>
-        <MaterialIcons name="search" size={20} color={theme.colors.outline} />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search for stores or items..."
-          placeholderTextColor={theme.colors.outline}
-          value={searchQuery}
-          onChangeText={setSearchQuery}
+      <TouchableOpacity 
+        style={[styles.recenterButton, { bottom: params.routingLat ? 120 : (selectedStore ? 240 : 100) }]} 
+        onPress={handleRecenter}
+      >
+        <MaterialIcons 
+          name={autoFollow ? "my-location" : "location-searching"} 
+          size={24} 
+          color={autoFollow ? "#FFB300" : theme.colors.onSurfaceVariant} 
         />
-        <TouchableOpacity style={styles.filterButton}>
-          <MaterialIcons name="tune" size={20} color={theme.colors.primaryContainer} />
-        </TouchableOpacity>
-      </View>
+      </TouchableOpacity>
+
+      {params.routingLat ? (
+        <View style={styles.navHeader}>
+          <View style={styles.navInfo}>
+            <Text style={styles.navTitle}>Navigating to {params.routingName}</Text>
+            <Text style={styles.navSub}>Follow the yellow path</Text>
+          </View>
+          <TouchableOpacity style={styles.exitButton} onPress={handleExitNavigation}>
+            <MaterialIcons name="close" size={24} color={theme.colors.onErrorContainer} />
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <View style={styles.searchContainer}>
+          <MaterialIcons name="search" size={20} color={theme.colors.outline} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search for stores or items..."
+            placeholderTextColor={theme.colors.outline}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+          />
+          <TouchableOpacity style={styles.filterButton}>
+            <MaterialIcons name="tune" size={20} color={theme.colors.primaryContainer} />
+          </TouchableOpacity>
+        </View>
+      )}
 
       {isLoading && (
         <View style={styles.loadingOverlay}>
@@ -151,20 +250,20 @@ export default function ExploreScreen() {
         </View>
       )}
 
-      {selectedStore && (
+      {selectedStore && !params.routingLat && (
         <View style={styles.bottomSheet}>
           <View style={styles.sheetHeaderRow}>
             <View style={styles.sheetTitleBlock}>
               <TouchableOpacity onPress={() => router.push(`/store/${selectedStore.store_id}`)}>
                 <Text style={styles.sheetTitle}>{selectedStore.store_name}</Text>
               </TouchableOpacity>
-              <Text style={styles.sheetSub}>~200m away</Text>
+              <Text style={styles.sheetSub}>Owner: {selectedStore.owner_name ?? 'Community Member'}</Text>
             </View>
             <View style={styles.sheetRight}>
               <StatusChip status={selectedStore.status} />
               <View style={styles.ratingRow}>
                 <RatingStars rating={selectedStore.rating} />
-                <Text style={styles.ratingText}>{selectedStore.rating.toFixed(1)}</Text>
+                <Text style={styles.ratingText}>{(selectedStore.rating || 0).toFixed(1)}</Text>
               </View>
             </View>
           </View>
@@ -253,15 +352,23 @@ function LeafletWebMap({
 }
 
 function LeafletNativeMap({
+  webViewRef,
   WebViewComponent,
   stores,
   center,
   onSelect,
+  userLat,
+  userLng,
+  onManualPan,
 }: {
+  webViewRef: any;
   WebViewComponent: any;
   stores: StoreSummary[];
   center: MapRegion;
   onSelect: (storeId: string) => void;
+  userLat?: number;
+  userLng?: number;
+  onManualPan: () => void;
 }) {
   if (!WebViewComponent) return null;
 
@@ -276,24 +383,171 @@ function LeafletNativeMap({
   const html = `<!doctype html>
   <html>
     <head>
-      <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+      <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
       <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+      <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
       <style>
-        html, body, #map { height: 100%; margin: 0; }
+        html, body, #map { height: 100%; margin: 0; background: #f8f9fa; }
+        .user-location-marker {
+          width: 20px;
+          height: 20px;
+          background: #4285F4;
+          border: 3px solid white;
+          border-radius: 50%;
+          box-shadow: 0 0 8px rgba(66, 133, 244, 0.6);
+          z-index: 1000 !important;
+        }
+        .user-location-marker::after {
+          content: '';
+          position: absolute;
+          top: -3px;
+          left: -3px;
+          right: -3px;
+          bottom: -3px;
+          border: 2px solid #4285F4;
+          border-radius: 50%;
+          animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+          0% { transform: scale(1); opacity: 1; }
+          100% { transform: scale(2.5); opacity: 0; }
+        }
+        .start-marker {
+          width: 14px;
+          height: 14px;
+          background: #757575;
+          border: 2px solid white;
+          border-radius: 50%;
+          z-index: 999 !important;
+        }
       </style>
     </head>
     <body>
       <div id="map"></div>
       <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+      <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
       <script>
-        const map = L.map('map').setView([${center.latitude}, ${center.longitude}], 15);
-        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+        const map = L.map('map', { 
+          zoomControl: false,
+          tap: false // Recommended for mobile
+        }).setView([${center.latitude}, ${center.longitude}], 15);
+        
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+          attribution: '&copy; OpenStreetMap'
+        }).addTo(map);
+
+        map.on('movestart', (e) => {
+          if (e.originalEvent) {
+             window.ReactNativeWebView.postMessage(JSON.stringify({ type: 'manualPan' }));
+          }
+        });
+        
+        const redPinIcon = L.icon({
+          iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-red.png',
+          shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+          iconSize: [30, 48],
+          iconAnchor: [15, 48],
+          popupAnchor: [1, -34],
+          shadowSize: [48, 48]
+        });
+
+        const userIcon = L.divIcon({ className: 'user-location-marker', iconSize: [20, 20], iconAnchor: [10, 10] });
+        const startIcon = L.divIcon({ className: 'start-marker', iconSize: [14, 14], iconAnchor: [7, 7] });
+        
+        let userMarker = null;
+        let startPointMarker = null;
+        if (${userLat} && ${userLng}) {
+          userMarker = L.marker([${userLat}, ${userLng}], { icon: userIcon }).addTo(map);
+        }
+
         const markers = ${JSON.stringify(markers)};
         markers.forEach((m) => {
-          const marker = L.marker([m.latitude, m.longitude]).addTo(map);
+          const marker = L.marker([m.latitude, m.longitude], { icon: redPinIcon }).addTo(map);
           marker.on('click', () => {
             window.ReactNativeWebView.postMessage(JSON.stringify({ storeId: m.store_id }));
           });
+        });
+
+        let currentRouting = null;
+        let destinationPoint = null;
+
+        window.addEventListener('message', (e) => {
+          const data = JSON.parse(e.data);
+          
+          if (data.type === 'locationUpdate') {
+            const userLatLng = L.latLng(data.lat, data.lng);
+            if (!userMarker) {
+              userMarker = L.marker(userLatLng, { icon: userIcon }).addTo(map);
+            } else {
+              userMarker.setLatLng(userLatLng);
+            }
+
+            // Live Update: Redraw the "snake" if routing is active
+            if (currentRouting && destinationPoint) {
+              currentRouting.setWaypoints([
+                userLatLng,
+                destinationPoint
+              ]);
+            }
+          }
+
+          if (data.type === 'clearRouting') {
+            if (currentRouting) {
+              map.removeControl(currentRouting);
+              currentRouting = null;
+            }
+            if (startPointMarker) {
+              map.removeLayer(startPointMarker);
+              startPointMarker = null;
+            }
+            destinationPoint = null;
+            map.closePopup();
+          }
+
+          if (data.type === 'startRouting') {
+            if (currentRouting) map.removeControl(currentRouting);
+            if (startPointMarker) map.removeLayer(startPointMarker);
+            
+            const startLat = userMarker ? userMarker.getLatLng().lat : ${center.latitude};
+            const startLng = userMarker ? userMarker.getLatLng().lng : ${center.longitude};
+            const destLat = data.destLat;
+            const destLng = data.destLng;
+            
+            destinationPoint = L.latLng(destLat, destLng);
+            startPointMarker = L.marker([startLat, startLng], { icon: startIcon }).addTo(map);
+
+            // Execute strict Leaflet Routing Machine implementation
+            currentRouting = L.Routing.control({
+              waypoints: [
+                L.latLng(startLat, startLng),
+                destinationPoint
+              ],
+              router: L.Routing.osrmv1({
+                serviceUrl: 'https://router.project-osrm.org/route/v1'
+              }),
+              lineOptions: {
+                styles: [{ color: '#FFD700', weight: 8, opacity: 0.9 }]
+              },
+              createMarker: function() { return null; }, // Hide default markers to use ours
+              addWaypoints: false,
+              routeWhileDragging: false,
+              show: false // Hide the itinerary panel
+            }).addTo(map);
+
+            currentRouting.on('routesfound', function(e) {
+              const routes = e.routes;
+              const summary = routes[0].summary;
+              const distKm = (summary.totalDistance / 1000).toFixed(1);
+              const durationMin = Math.round(summary.totalTime / 60);
+              
+              L.popup({ closeButton: false, offset: [0, -10] })
+                .setLatLng([startLat, startLng])
+                .setContent('<div style="font-weight:bold; color:#FFB300">' + durationMin + ' min (' + distKm + ' km)</div>')
+                .addTo(map);
+                
+              map.fitBounds(L.geoJSON(routes[0].coordinates).getBounds(), { padding: [80, 80] });
+            });
+          }
         });
       </script>
     </body>
@@ -301,7 +555,8 @@ function LeafletNativeMap({
 
   return (
     <WebViewComponent
-      key={`${center.latitude}_${center.longitude}_${markers.length}`}
+      ref={webViewRef}
+      key="main-map"
       originWhitelist={['*']}
       source={{ html }}
       style={{ flex: 1 }}
@@ -309,8 +564,9 @@ function LeafletNativeMap({
         try {
           const data = JSON.parse(event.nativeEvent.data);
           if (data.storeId) onSelect(data.storeId);
+          if (data.type === 'manualPan') onManualPan();
         } catch {
-          // Ignore malformed messages
+          // Ignore
         }
       }}
     />
@@ -509,5 +765,65 @@ const styles = StyleSheet.create({
   statusText: {
     ...theme.typography.labelMedium,
     fontWeight: '600',
+  },
+  recenterButton: {
+    position: 'absolute',
+    right: 16,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: theme.colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceVariant,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 5,
+    zIndex: 3,
+  },
+  navHeader: {
+    position: 'absolute',
+    top: 54,
+    left: 16,
+    right: 16,
+    backgroundColor: theme.colors.surface,
+    borderRadius: 16,
+    padding: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderWidth: 1,
+    borderColor: theme.colors.surfaceVariant,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 6,
+    zIndex: 10,
+  },
+  navInfo: {
+    flex: 1,
+  },
+  navTitle: {
+    ...theme.typography.h3,
+    color: theme.colors.onSurface,
+    fontSize: 16,
+  },
+  navSub: {
+    ...theme.typography.bodySmall,
+    color: theme.colors.primaryContainer,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  exitButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: theme.colors.errorContainer,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });

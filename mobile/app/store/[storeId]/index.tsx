@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, ActivityIndicator, Alert, TextInput } from 'react-native';
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, ActivityIndicator, Alert, TextInput, Modal, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useQuery } from '@tanstack/react-query';
 import { useFocusEffect } from '@react-navigation/native';
+import * as Location from 'expo-location';
 import { CustomerService } from '../../../src/services/customer';
 import { ProductService } from '../../../src/services/product';
 import { theme } from '../../../src/theme/theme';
@@ -14,6 +15,7 @@ export default function StoreProfileScreen() {
   const { storeId } = useLocalSearchParams<{ storeId: string }>();
   const [isFavorite, setIsFavorite] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
 
   useEffect(() => {
     const loadFavorite = async () => {
@@ -44,18 +46,36 @@ export default function StoreProfileScreen() {
   });
 
   const categories = useMemo(() => {
-    const bucket = new Map<string, string[]>();
+    const bucket = new Map<string, typeof products>();
     const query = searchQuery.trim().toLowerCase();
 
     products.forEach((product) => {
       if (query && !product.name.toLowerCase().includes(query)) return;
       const key = product.category?.trim() || 'Essentials';
       if (!bucket.has(key)) bucket.set(key, []);
-      bucket.get(key)!.push(product.name);
+      bucket.get(key)!.push(product);
     });
 
     return Array.from(bucket.entries()).map(([category, items]) => ({ category, items }));
   }, [products, searchQuery]);
+
+
+  const handleStartRouting = () => {
+    if (!store?.latitude || !store?.longitude) {
+      Alert.alert('Directions', 'Store location is not pinned yet.');
+      return;
+    }
+
+    router.push({
+      pathname: '/(customer)',
+      params: {
+        routingLat: store.latitude,
+        routingLng: store.longitude,
+        routingName: store.store_name,
+        storeId: store.store_id
+      }
+    });
+  };
 
   if (loadingStore || loadingProducts) {
     return (
@@ -88,7 +108,9 @@ export default function StoreProfileScreen() {
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
 
       {store.image_url ? (
-        <Image source={{ uri: store.image_url }} style={styles.headerImage} />
+        <TouchableOpacity activeOpacity={0.9} onPress={() => setSelectedImage(store.image_url!)}>
+          <Image source={{ uri: store.image_url }} style={styles.headerImage} />
+        </TouchableOpacity>
       ) : (
         <View style={styles.headerPlaceholder}>
           <MaterialIcons name="storefront" size={48} color={theme.colors.primaryContainer} />
@@ -103,11 +125,15 @@ export default function StoreProfileScreen() {
               <MaterialIcons name="place" size={16} color={theme.colors.outline} />
               <Text style={styles.addressText}>{store.address ?? 'Address not set'}</Text>
             </View>
+            <View style={styles.addressRow}>
+              <MaterialIcons name="person" size={16} color={theme.colors.outline} />
+              <Text style={styles.addressText}>Owner: {store.owner_name ?? 'Community Member'}</Text>
+            </View>
           </View>
           <View style={styles.headerActions}>
             <TouchableOpacity style={styles.ratingBadge} onPress={() => router.push(`/store/${store.store_id}/reviews`)}>
               <MaterialIcons name="star" size={16} color={theme.colors.secondary} />
-              <Text style={styles.ratingText}>{store.rating.toFixed(1)}</Text>
+              <Text style={styles.ratingText}>{(store.rating || 0).toFixed(1)}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.favoriteButton}
@@ -130,16 +156,6 @@ export default function StoreProfileScreen() {
           </View>
         </View>
 
-        <View style={styles.actionRow}>
-          <TouchableOpacity style={styles.actionButton} onPress={() => Alert.alert('Call Store', 'Calling store...')}>
-            <MaterialIcons name="call" size={20} color={theme.colors.primaryContainer} />
-            <Text style={styles.actionText}>Call Store</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.actionButton} onPress={() => Alert.alert('Message Store', 'Messaging store...')}>
-            <MaterialIcons name="chat" size={20} color={theme.colors.primaryContainer} />
-            <Text style={styles.actionText}>Message Store</Text>
-          </TouchableOpacity>
-        </View>
 
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>Product Availability</Text>
@@ -155,6 +171,14 @@ export default function StoreProfileScreen() {
           </View>
         </View>
 
+        <TouchableOpacity 
+          style={styles.directionsButton} 
+          onPress={handleStartRouting}
+        >
+          <MaterialIcons name="navigation" size={20} color={theme.colors.onPrimary} />
+          <Text style={styles.directionsButtonText}>Get Directions</Text>
+        </TouchableOpacity>
+
         {categories.length === 0 ? (
           <Text style={styles.emptyText}>No matching products found.</Text>
         ) : (
@@ -163,9 +187,17 @@ export default function StoreProfileScreen() {
               <Text style={styles.categoryTitle}>{category.category}</Text>
               <View style={styles.chipWrap}>
                 {category.items.map((item) => (
-                  <View key={item} style={styles.chip}>
-                    <Text style={styles.chipText}>{item}</Text>
-                  </View>
+                  <TouchableOpacity 
+                    key={item.product_id} 
+                    style={styles.chip}
+                    onPress={() => item.image_url && setSelectedImage(item.image_url)}
+                    disabled={!item.image_url}
+                  >
+                    {item.image_url && (
+                      <MaterialIcons name="image" size={14} color={theme.colors.primary} style={{ marginRight: 4 }} />
+                    )}
+                    <Text style={styles.chipText}>{item.name} • ₱{item.selling_price}</Text>
+                  </TouchableOpacity>
                 ))}
               </View>
             </View>
@@ -188,9 +220,40 @@ export default function StoreProfileScreen() {
           <Text style={styles.navLabel}>Profile</Text>
         </TouchableOpacity>
       </View>
+
+      <Modal
+        visible={!!selectedImage}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setSelectedImage(null)}
+      >
+        <TouchableOpacity 
+          style={styles.imageModalOverlay} 
+          activeOpacity={1} 
+          onPress={() => setSelectedImage(null)}
+        >
+          <View style={styles.imageModalContent}>
+            {selectedImage && (
+              <Image 
+                source={{ uri: selectedImage }} 
+                style={styles.fullImage} 
+                resizeMode="contain" 
+              />
+            )}
+            <TouchableOpacity 
+              style={styles.closeImageButton} 
+              onPress={() => setSelectedImage(null)}
+            >
+              <MaterialIcons name="close" size={24} color="#fff" />
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
     </View>
   );
 }
+
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
@@ -388,5 +451,52 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '600',
     color: theme.colors.primaryContainer,
+  },
+  imageModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imageModalContent: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  fullImage: {
+    width: '100%',
+    height: '100%',
+  },
+  closeImageButton: {
+    position: 'absolute',
+    top: 40,
+    right: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  directionsButton: {
+    backgroundColor: theme.colors.primaryContainer,
+    height: 54,
+    borderRadius: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    shadowColor: theme.colors.primaryContainer,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
+    marginTop: 8,
+  },
+  directionsButtonText: {
+    ...theme.typography.button,
+    color: theme.colors.onPrimary,
+    fontSize: 16,
   },
 });
