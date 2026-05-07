@@ -80,6 +80,11 @@ export const NotificationService = {
    * Schedule a local notification (e.g., for low stock).
    */
   async scheduleLocalNotification(title: string, body: string, data?: any): Promise<void> {
+    if (Platform.OS === 'web') {
+      console.log('Local notifications are not supported on web:', title);
+      return;
+    }
+    
     await Notifications.scheduleNotificationAsync({
       content: {
         title,
