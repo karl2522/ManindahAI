@@ -517,21 +517,29 @@ export default function InventoryScreen() {
                     onChangeText={(v: string) => setEditForm((f: typeof editForm) => ({ ...f, name: v }))}
                   />
 
+                  <Text style={[theme.typography.bodyLarge, { color: theme.colors.onSurface, fontWeight: '500', marginBottom: 8, marginTop: 20 }]}>Cost Price (₱)</Text>
+                  <TextInput
+                    style={[styles.modalInput, theme.typography.bodyLarge, { borderColor: theme.colors.outlineVariant }]}
+                    placeholder="0.00"
+                    value={editForm.original_price}
+                    onChangeText={(v: string) => {
+                      setEditForm((f: typeof editForm) => {
+                        const cost = parseFloat(v) || 0;
+                        const currentSelling = parseFloat(f.selling_price) || 0;
+                        // If selling price is 0 or not yet set, suggest a 15% markup
+                        const suggestedSelling = currentSelling === 0 ? (cost * 1.15).toFixed(2) : f.selling_price;
+                        return { ...f, original_price: v, selling_price: suggestedSelling };
+                      });
+                    }}
+                    keyboardType="decimal-pad"
+                  />
+
                   <Text style={[theme.typography.bodyLarge, { color: theme.colors.onSurface, fontWeight: '500', marginBottom: 8, marginTop: 20 }]}>Selling Price (₱)</Text>
                   <TextInput
                     style={[styles.modalInput, theme.typography.bodyLarge, { borderColor: theme.colors.outlineVariant }]}
                     placeholder="0.00"
                     value={editForm.selling_price}
                     onChangeText={(v: string) => setEditForm((f: typeof editForm) => ({ ...f, selling_price: v }))}
-                    keyboardType="decimal-pad"
-                  />
-
-                  <Text style={[theme.typography.bodyLarge, { color: theme.colors.onSurface, fontWeight: '500', marginBottom: 8, marginTop: 20 }]}>Cost Price (₱)</Text>
-                  <TextInput
-                    style={[styles.modalInput, theme.typography.bodyLarge, { borderColor: theme.colors.outlineVariant }]}
-                    placeholder="0.00"
-                    value={editForm.original_price}
-                    onChangeText={(v: string) => setEditForm((f: typeof editForm) => ({ ...f, original_price: v }))}
                     keyboardType="decimal-pad"
                   />
 

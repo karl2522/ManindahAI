@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, Platform, Linking, Alert } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, ActivityIndicator, Platform, Alert } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { useQuery } from '@tanstack/react-query';
 import { MaterialIcons } from '@expo/vector-icons';
@@ -30,12 +30,10 @@ export default function ExploreScreen() {
   const [selectedStore, setSelectedStore] = useState<StoreSummary | null>(null);
   const [mapCenter, setMapCenter] = useState<MapRegion>(DEFAULT_CENTER);
   const [autoFollow, setAutoFollow] = useState(true);
-  const params = useLocalSearchParams<{ routingLat?: string, routingLng?: string, routingName?: string }>();
+  const params = useLocalSearchParams<{ storeId?: string }>();
   const [userLocation, setUserLocation] = useState<Location.LocationObject | null>(null);
   const locationSubscription = useRef<Location.LocationSubscription | null>(null);
   const webViewRef = useRef<any>(null);
-  const [navigatingTo, setNavigatingTo] = useState<StoreSummary | null>(null);
-  const [routingMetrics, setRoutingMetrics] = useState<{ distance: string, duration: number } | null>(null);
 
   const {
     data: stores = [],
@@ -107,8 +105,7 @@ export default function ExploreScreen() {
             webViewRef.current.postMessage(JSON.stringify({
               type: 'locationUpdate',
               lat: loc.coords.latitude,
-              lng: loc.coords.longitude,
-              heading: loc.coords.heading
+              lng: loc.coords.longitude
             }));
           }
         }
@@ -123,67 +120,16 @@ export default function ExploreScreen() {
     };
   }, []);
 
-  useEffect(() => {
-    if (params.routingLat && params.routingLng && !navigatingTo) {
-      const match = stores.find(s => s.store_id === params.storeId);
-      if (match) {
-        setNavigatingTo(match);
-      }
-    }
-  }, [params.routingLat, params.storeId, stores, navigatingTo]);
-
-  useEffect(() => {
-    if (params.routingLat && params.routingLng && webViewRef.current) {
-      webViewRef.current.postMessage(JSON.stringify({
-        type: 'startRouting',
-        destLat: parseFloat(params.routingLat),
-        destLng: parseFloat(params.routingLng),
-        destName: params.routingName
-      }));
-    }
-  }, [params.routingLat, params.routingLng, params.routingName]);
-
   const itemChips = useMemo(() => {
     if (!selectedStoreItemsQuery.data) return [];
-    return selectedStoreItemsQuery.data.map((item) => item.name).slice(0, 8);
+    return selectedStoreItemsQuery.data.map((item) => 
+      `${item.name} · ₱${item.selling_price.toFixed(2)}`
+    ).slice(0, 8);
   }, [selectedStoreItemsQuery.data]);
 
   const handleMapSelect = (storeId: string) => {
     const match = stores.find((store) => store.store_id === storeId);
     if (match) setSelectedStore(match);
-  };
-
-  const handleGetDirections = () => {
-    setAutoFollow(true);
-    if (selectedStore?.latitude && selectedStore?.longitude) {
-      router.setParams({
-        routingLat: selectedStore.latitude.toString(),
-        routingLng: selectedStore.longitude.toString(),
-        routingName: selectedStore.store_name,
-        storeId: selectedStore.store_id
-      });
-      setNavigatingTo(selectedStore);
-      setRoutingMetrics(null);
-      webViewRef.current?.postMessage(JSON.stringify({
-        type: 'startRouting',
-        destLat: selectedStore.latitude,
-        destLng: selectedStore.longitude,
-        destName: selectedStore.store_name
-      }));
-    }
-  };
-
-  const exitNavigation = () => {
-    router.setParams({
-      routingLat: undefined,
-      routingLng: undefined,
-      routingName: undefined,
-      storeId: undefined
-    });
-    setNavigatingTo(null);
-    setRoutingMetrics(null);
-    webViewRef.current?.postMessage(JSON.stringify({ type: 'clearRouting' }));
-    setAutoFollow(true);
   };
 
   const handleRecenter = () => {
@@ -206,6 +152,8 @@ export default function ExploreScreen() {
             stores={stores}
             center={mapCenter}
             onSelect={handleMapSelect}
+            userLat={userLocation?.coords.latitude}
+            userLng={userLocation?.coords.longitude}
           />
         ) : (
           <LeafletNativeMap
@@ -217,14 +165,16 @@ export default function ExploreScreen() {
             userLat={userLocation?.coords.latitude}
             userLng={userLocation?.coords.longitude}
             onManualPan={() => setAutoFollow(false)}
-            onRoutingUpdate={(metrics) => setRoutingMetrics(metrics)}
           />
         )}
       </View>
 
       <TouchableOpacity 
-        style={[styles.recenterButton, { bottom: params.routingLat ? 120 : (selectedStore ? 240 : 100) }]} 
+        style={[styles.recenterButton, { bottom: selectedStore ? 240 : 100 }]} 
         onPress={handleRecenter}
+        accessibilityRole="button"
+        accessibilityLabel="Recenter map"
+        importantForAccessibility="yes"
       >
         <MaterialIcons 
           name={autoFollow ? "my-location" : "location-searching"} 
@@ -233,24 +183,7 @@ export default function ExploreScreen() {
         />
       </TouchableOpacity>
 
-      {navigatingTo ? (
-        <View style={styles.navHeader}>
-          <View style={styles.navInfo}>
-            <Text style={styles.navTitle}>Navigating to {navigatingTo.store_name}</Text>
-            {routingMetrics ? (
-              <Text style={styles.navSub}>
-                {routingMetrics.duration} min • {routingMetrics.distance} km remaining
-              </Text>
-            ) : (
-              <Text style={styles.navSub}>Calculating best route...</Text>
-            )}
-          </View>
-          <TouchableOpacity style={styles.exitButton} onPress={exitNavigation}>
-            <MaterialIcons name="close" size={24} color={theme.colors.onErrorContainer} />
-          </TouchableOpacity>
-        </View>
-      ) : (
-        <View style={styles.searchContainer}>
+      <View style={styles.searchContainer}>
           <MaterialIcons name="search" size={20} color={theme.colors.outline} />
           <TextInput
             style={styles.searchInput}
@@ -263,7 +196,6 @@ export default function ExploreScreen() {
             <MaterialIcons name="tune" size={20} color={theme.colors.primaryContainer} />
           </TouchableOpacity>
         </View>
-      )}
 
       {isLoading && (
         <View style={styles.loadingOverlay}>
@@ -271,7 +203,7 @@ export default function ExploreScreen() {
         </View>
       )}
 
-      {selectedStore && !navigatingTo && (
+      {selectedStore && (
         <View style={styles.bottomSheet}>
           <View style={styles.sheetHeaderRow}>
             <View style={styles.sheetTitleBlock}>
@@ -305,11 +237,11 @@ export default function ExploreScreen() {
           )}
 
           <View style={styles.sheetActions}>
-            <TouchableOpacity style={styles.secondarySheetButton} onPress={() => router.push(`/store/${selectedStore.store_id}`)}>
-              <Text style={styles.secondarySheetButtonText}>View Store</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.primaryButton} onPress={handleGetDirections}>
-              <Text style={styles.primaryButtonText}>Get Directions</Text>
+            <TouchableOpacity 
+              style={[styles.primaryButton, { flex: 1 }]} 
+              onPress={() => router.push(`/store/${selectedStore.store_id}`)}
+            >
+              <Text style={styles.primaryButtonText}>View Store</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -322,10 +254,14 @@ function LeafletWebMap({
   stores,
   center,
   onSelect,
+  userLat,
+  userLng,
 }: {
   stores: StoreSummary[];
   center: MapRegion;
   onSelect: (storeId: string) => void;
+  userLat?: number;
+  userLng?: number;
 }) {
   const { MapContainer, TileLayer, Marker, useMap } = require('react-leaflet');
   const L = require('leaflet');
@@ -338,6 +274,48 @@ function LeafletWebMap({
       iconAnchor: [12, 41],
     });
     L.Marker.prototype.options.icon = icon;
+
+    // Inject User Location Styles for Web
+    if (typeof document !== 'undefined') {
+      const styleId = 'user-location-styles';
+      if (!document.getElementById(styleId)) {
+        const style = document.createElement('style');
+        style.id = styleId;
+        style.innerHTML = `
+          .user-location-marker {
+            width: 24px;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000 !important;
+          }
+          .dot-core {
+            width: 14px;
+            height: 14px;
+            background: #4285F4;
+            border: 2px solid white;
+            border-radius: 50%;
+            box-shadow: 0 0 6px rgba(0,0,0,0.3);
+            z-index: 2;
+          }
+          .pulse-aura {
+            position: absolute;
+            width: 40px;
+            height: 40px;
+            background: rgba(66, 133, 244, 0.2);
+            border-radius: 50%;
+            animation: mapPulse 2s ease-out infinite;
+            z-index: 1;
+          }
+          @keyframes mapPulse {
+            0% { transform: scale(0.5); opacity: 0.8; }
+            100% { transform: scale(2); opacity: 0; }
+          }
+        `;
+        document.head.appendChild(style);
+      }
+    }
   }, [L]);
 
   const MapRecenter = () => {
@@ -348,6 +326,17 @@ function LeafletWebMap({
     return null;
   };
 
+  const UserMarker = () => {
+    if (!userLat || !userLng) return null;
+    const userIcon = L.divIcon({
+      className: 'user-location-marker',
+      iconSize: [20, 20],
+      iconAnchor: [10, 10],
+      html: '<div class="pulse-aura"></div><div class="dot-core"></div>'
+    });
+    return <Marker position={[userLat, userLng]} icon={userIcon} zIndexOffset={1000} />;
+  };
+
   return (
     <MapContainer
       center={[center.latitude, center.longitude]}
@@ -356,6 +345,7 @@ function LeafletWebMap({
       zoomControl={false}
     >
       <MapRecenter />
+      <UserMarker />
       <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
       {stores
         .filter((store) => store.latitude && store.longitude)
@@ -381,7 +371,6 @@ function LeafletNativeMap({
   userLat,
   userLng,
   onManualPan,
-  onRoutingUpdate,
 }: {
   webViewRef: any;
   WebViewComponent: any;
@@ -391,7 +380,6 @@ function LeafletNativeMap({
   userLat?: number;
   userLng?: number;
   onManualPan: () => void;
-  onRoutingUpdate: (metrics: { distance: string, duration: number }) => void;
 }) {
   if (!WebViewComponent) return null;
 
@@ -411,38 +399,34 @@ function LeafletNativeMap({
       <style>
         html, body, #map { height: 100%; margin: 0; background: #f8f9fa; }
         .user-location-marker {
-          width: 32px;
-          height: 32px;
+          width: 24px;
+          height: 24px;
           display: flex;
           align-items: center;
           justify-content: center;
-          transition: transform 0.3s ease;
           z-index: 1000 !important;
         }
-        .nav-arrow {
-          width: 0;
-          height: 0;
-          border-left: 10px solid transparent;
-          border-right: 10px solid transparent;
-          border-bottom: 24px solid #4285F4;
-          filter: drop-shadow(0 0 4px rgba(0,0,0,0.3));
-          position: relative;
+        .dot-core {
+          width: 14px;
+          height: 14px;
+          background: #4285F4;
+          border: 2px solid white;
+          border-radius: 50%;
+          box-shadow: 0 0 6px rgba(0,0,0,0.3);
+          z-index: 2;
         }
-        .nav-arrow::after {
-          content: '';
+        .pulse-aura {
           position: absolute;
-          top: 18px;
-          left: -10px;
-          width: 0;
-          height: 0;
-          border-left: 10px solid transparent;
-          border-right: 10px solid transparent;
-          border-bottom: 8px solid white;
-          opacity: 0.8;
+          width: 40px;
+          height: 40px;
+          background: rgba(66, 133, 244, 0.2);
+          border-radius: 50%;
+          animation: mapPulse 2s ease-out infinite;
+          z-index: 1;
         }
-        @keyframes pulse {
-          0% { transform: scale(1); opacity: 1; }
-          100% { transform: scale(2.5); opacity: 0; }
+        @keyframes mapPulse {
+          0% { transform: scale(0.5); opacity: 0.8; }
+          100% { transform: scale(2); opacity: 0; }
         }
         .start-marker {
           width: 14px;
@@ -458,6 +442,23 @@ function LeafletNativeMap({
       <div id="map"></div>
       <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
       <script>
+        // Senior Dev Fix: Passive listeners for better scroll performance
+        (function() {
+          const originalAddEventListener = EventTarget.prototype.addEventListener;
+          EventTarget.prototype.addEventListener = function(type, listener, options) {
+            if (['touchstart', 'touchmove', 'wheel', 'mousewheel'].includes(type)) {
+              if (typeof options === 'boolean') {
+                options = { capture: options, passive: true };
+              } else if (typeof options === 'object') {
+                options.passive = options.passive !== undefined ? options.passive : true;
+              } else {
+                options = { passive: true };
+              }
+            }
+            return originalAddEventListener.call(this, type, listener, options);
+          };
+        })();
+
         function calculateDistance(lat1, lon1, lat2, lon2) {
           const R = 6371; // km
           const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -512,17 +513,15 @@ function LeafletNativeMap({
           shadowSize: [48, 48]
         });
 
-        const userIcon = L.divIcon({
-          className: 'user-location-marker',
-          html: '<div class="nav-arrow" id="user-arrow"></div>',
-          iconSize: [32, 32],
-          iconAnchor: [16, 16]
+        const userIcon = L.divIcon({ 
+          className: 'user-location-marker', 
+          iconSize: [24, 24], 
+          iconAnchor: [12, 12],
+          html: '<div class="pulse-aura"></div><div class="dot-core"></div>'
         });
-        const startIcon = L.divIcon({ className: 'start-marker', iconSize: [14, 14], iconAnchor: [7, 7] });
-        
         let userMarker = null;
-        let startPointMarker = null;
         if (${userLat} && ${userLng}) {
+          console.log('Initial user location:', ${userLat}, ${userLng});
           userMarker = L.marker([${userLat}, ${userLng}], { icon: userIcon }).addTo(map);
         }
 
@@ -534,76 +533,17 @@ function LeafletNativeMap({
           });
         });
 
-        let currentRouting = null;
-        let destinationPoint = null;
-
         window.addEventListener('message', (e) => {
           const data = JSON.parse(e.data);
           
           if (data.type === 'locationUpdate') {
+            console.log('Location update received:', data.lat, data.lng);
             const userLatLng = L.latLng(data.lat, data.lng);
             if (!userMarker) {
               userMarker = L.marker(userLatLng, { icon: userIcon }).addTo(map);
             } else {
               userMarker.setLatLng(userLatLng);
             }
-
-            // Smart Wayfinder: Rotate arrow towards destination or use heading
-            const arrowEl = document.getElementById('user-arrow');
-            if (arrowEl) {
-              let rotation = 0;
-              if (destinationPoint) {
-                // Point towards the store
-                rotation = calculateBearing(data.lat, data.lng, destinationPoint.lat, destinationPoint.lng);
-              } else if (data.heading !== undefined && data.heading !== null) {
-                // Point in movement direction
-                rotation = data.heading;
-              }
-              arrowEl.style.transform = 'rotate(' + rotation + 'deg)';
-            }
-
-              // Live Update: Update metrics via Haversine
-              const distKm = calculateDistance(data.lat, data.lng, destinationPoint.lat, destinationPoint.lng).toFixed(1);
-              const durationMin = Math.round(distKm / 0.08); // Assume ~5km/h walking/slow driving
-
-              window.ReactNativeWebView.postMessage(JSON.stringify({
-                type: 'routingUpdate',
-                distance: distKm,
-                duration: durationMin
-              }));
-            }
-          }
-
-          if (data.type === 'clearRouting') {
-            if (startPointMarker) {
-              map.removeLayer(startPointMarker);
-              startPointMarker = null;
-            }
-            destinationPoint = null;
-            map.closePopup();
-          }
-
-          if (data.type === 'startRouting') {
-            if (startPointMarker) map.removeLayer(startPointMarker);
-            
-            const startLat = userMarker ? userMarker.getLatLng().lat : ${center.latitude};
-            const startLng = userMarker ? userMarker.getLatLng().lng : ${center.longitude};
-            const destLat = data.destLat;
-            const destLng = data.destLng;
-            
-            destinationPoint = L.latLng(destLat, destLng);
-            startPointMarker = L.marker([destLat, destLng], { icon: startIcon }).addTo(map);
-
-            const distKm = calculateDistance(startLat, startLng, destLat, destLng).toFixed(1);
-            const durationMin = Math.round(distKm / 0.08);
-
-            window.ReactNativeWebView.postMessage(JSON.stringify({
-              type: 'routingUpdate',
-              distance: distKm,
-              duration: durationMin
-            }));
-
-            map.fitBounds(L.latLngBounds([startLat, startLng], [destLat, destLng]), { padding: [80, 80] });
           }
         });
       </script>
@@ -621,9 +561,6 @@ function LeafletNativeMap({
         try {
           const data = JSON.parse(event.nativeEvent.data);
           if (data.type === 'manualPan') onManualPan();
-          if (data.type === 'routingUpdate') {
-            onRoutingUpdate({ distance: data.distance, duration: data.duration });
-          }
           if (data.storeId) onSelect(data.storeId);
         } catch {
           // Ignore
@@ -777,14 +714,24 @@ const styles = StyleSheet.create({
   ratingText: { ...theme.typography.labelMedium, color: theme.colors.onSurfaceVariant },
   chipRow: { gap: 8 },
   chip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    backgroundColor: theme.colors.surfaceContainerLow,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: theme.colors.surface,
     borderWidth: 1,
     borderColor: theme.colors.surfaceVariant,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
   },
-  chipText: { ...theme.typography.labelMedium, color: theme.colors.onSurface },
+  chipText: { 
+    ...theme.typography.labelMedium, 
+    color: theme.colors.onSurface,
+    fontWeight: '600',
+    letterSpacing: 0.2,
+  },
   emptyChipText: { ...theme.typography.labelMedium, color: theme.colors.outline, paddingVertical: 4 },
   primaryButton: {
     flex: 1,

@@ -174,8 +174,29 @@ export const CustomerService = {
       rating: data.rating,
       comment: data.comment,
       created_at: data.created_at,
-      author_name: data.users?.[0]?.name ?? null,
+      author_name: data.users?.name ?? null,
     };
+  },
+
+  /**
+   * Delete a review.
+   */
+  async deleteReview(review_id: string, user_id: string): Promise<void> {
+    console.log('Service: Attempting delete', { review_id, user_id });
+    const { error, status } = await supabase
+      .from('reviews')
+      .delete()
+      .match({ review_id, user_id });
+
+    if (error) {
+      console.error('Supabase delete error:', error);
+      throw new Error(error.message);
+    }
+    
+    console.log('Supabase delete status:', status);
+    if (status >= 400) {
+      throw new Error(`Delete failed with status ${status}. Check RLS policies.`);
+    }
   },
 
   /**

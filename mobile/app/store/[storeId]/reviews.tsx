@@ -37,6 +37,38 @@ export default function StoreReviewsScreen() {
     return { rating: Math.round(avg * 10) / 10, count: reviews.length };
   }, [reviews]);
 
+  const userReview = useMemo(() => {
+    return reviews.find(r => r.user_id === profile?.user_id);
+  }, [reviews, profile?.user_id]);
+
+  const handleDeleteReview = async (reviewId: string) => {
+    Alert.alert(
+      'Delete Review',
+      'Are you sure you want to remove your review? You can write a new one afterwards.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { 
+          text: 'Delete', 
+          style: 'destructive',
+          onPress: async () => {
+            if (!profile?.user_id) return;
+            console.log('Attempting to delete review:', reviewId, 'User:', profile.user_id);
+            try {
+              await CustomerService.deleteReview(reviewId, profile.user_id);
+              console.log('Review deleted successfully');
+              queryClient.invalidateQueries({ queryKey: ['store-reviews', storeId] });
+              queryClient.invalidateQueries({ queryKey: ['store', storeId] });
+              queryClient.invalidateQueries({ queryKey: ['customer-stores'] });
+            } catch (e: any) {
+              console.error('Delete review error:', e);
+              Alert.alert('Delete Failed', e.message);
+            }
+          }
+        }
+      ]
+    );
+  };
+
   const handleSubmitReview = async () => {
     if (!storeId) return;
     if (!profile?.user_id) {
@@ -90,7 +122,13 @@ export default function StoreReviewsScreen() {
         data={reviews}
         keyExtractor={(item) => item.review_id}
         contentContainerStyle={styles.listContent}
-        renderItem={({ item }) => <ReviewCard review={item} />}
+        renderItem={({ item }) => (
+          <ReviewCard 
+            review={item} 
+            isOwner={item.user_id === profile?.user_id}
+            onDelete={() => handleDeleteReview(item.review_id)}
+          />
+        )}
         ListEmptyComponent={
           <View style={styles.centered}>
             <Text style={styles.emptyText}>No reviews yet.</Text>
@@ -99,11 +137,23 @@ export default function StoreReviewsScreen() {
       />
 
       <TouchableOpacity
-        style={styles.fab}
-        onPress={() => setModalVisible(true)}
+        style={[styles.fab, userReview && { backgroundColor: theme.colors.surfaceVariant }]}
+        onPress={() => {
+          if (userReview) {
+            Alert.alert('Review exists', 'You have already reviewed this store. Delete your previous review to write a new one.');
+          } else {
+            setModalVisible(true);
+          }
+        }}
       >
-        <MaterialIcons name="rate-review" size={22} color={theme.colors.onSecondaryContainer} />
-        <Text style={styles.fabText}>Write a Review</Text>
+        <MaterialIcons 
+          name={userReview ? "check-circle" : "rate-review"} 
+          size={22} 
+          color={userReview ? theme.colors.primaryContainer : theme.colors.onSecondaryContainer} 
+        />
+        <Text style={[styles.fabText, userReview && { color: theme.colors.primaryContainer }]}>
+          {userReview ? 'Already Reviewed' : 'Write a Review'}
+        </Text>
       </TouchableOpacity>
 
       <View style={styles.bottomNav}>
@@ -175,7 +225,15 @@ export default function StoreReviewsScreen() {
   );
 }
 
-function ReviewCard({ review }: { review: Review }) {
+function ReviewCard({ 
+  review, 
+  isOwner, 
+  onDelete 
+}: { 
+  review: Review; 
+  isOwner: boolean; 
+  onDelete: () => void; 
+}) {
   const initials = review.author_name ? review.author_name.charAt(0).toUpperCase() : 'U';
 
   return (
@@ -186,7 +244,18 @@ function ReviewCard({ review }: { review: Review }) {
       <View style={styles.reviewBody}>
         <View style={styles.reviewHeader}>
           <Text style={styles.reviewAuthor}>{review.author_name ?? 'Community Member'}</Text>
-          <RatingStars rating={review.rating} size={14} />
+          <View style={styles.reviewHeaderRight}>
+            <RatingStars rating={review.rating} size={14} />
+            {isOwner && (
+              <TouchableOpacity 
+                onPress={onDelete} 
+                style={styles.deleteButton}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <MaterialIcons name="delete-outline" size={18} color={theme.colors.error} />
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
         <Text style={styles.reviewDate}>{new Date(review.created_at).toLocaleDateString()}</Text>
         <Text style={styles.reviewText}>{review.comment ?? 'No comment provided.'}</Text>
@@ -390,4 +459,12 @@ const styles = StyleSheet.create({
     color: theme.colors.onPrimary,
   },
   starsRow: { flexDirection: 'row' },
+  reviewHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  deleteButton: {
+    padding: 4,
+  },
 });

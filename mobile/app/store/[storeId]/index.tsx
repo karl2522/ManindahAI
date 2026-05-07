@@ -59,24 +59,6 @@ export default function StoreProfileScreen() {
     return Array.from(bucket.entries()).map(([category, items]) => ({ category, items }));
   }, [products, searchQuery]);
 
-
-  const handleStartRouting = () => {
-    if (!store?.latitude || !store?.longitude) {
-      Alert.alert('Directions', 'Store location is not pinned yet.');
-      return;
-    }
-
-    router.push({
-      pathname: '/(customer)',
-      params: {
-        routingLat: store.latitude,
-        routingLng: store.longitude,
-        routingName: store.store_name,
-        storeId: store.store_id
-      }
-    });
-  };
-
   if (loadingStore || loadingProducts) {
     return (
       <View style={[styles.centered, { backgroundColor: theme.colors.background }]}>
@@ -106,105 +88,111 @@ export default function StoreProfileScreen() {
       </View>
 
       <ScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent}>
-
-      {store.image_url ? (
-        <TouchableOpacity activeOpacity={0.9} onPress={() => setSelectedImage(store.image_url!)}>
-          <Image source={{ uri: store.image_url }} style={styles.headerImage} />
-        </TouchableOpacity>
-      ) : (
-        <View style={styles.headerPlaceholder}>
-          <MaterialIcons name="storefront" size={48} color={theme.colors.primaryContainer} />
-        </View>
-      )}
-
-      <View style={styles.content}>
-        <View style={styles.headerRow}>
-          <View style={styles.titleBlock}>
-            <Text style={styles.storeName}>{store.store_name}</Text>
-            <View style={styles.addressRow}>
-              <MaterialIcons name="place" size={16} color={theme.colors.outline} />
-              <Text style={styles.addressText}>{store.address ?? 'Address not set'}</Text>
-            </View>
-            <View style={styles.addressRow}>
-              <MaterialIcons name="person" size={16} color={theme.colors.outline} />
-              <Text style={styles.addressText}>Owner: {store.owner_name ?? 'Community Member'}</Text>
-            </View>
-          </View>
-          <View style={styles.headerActions}>
-            <TouchableOpacity style={styles.ratingBadge} onPress={() => router.push(`/store/${store.store_id}/reviews`)}>
-              <MaterialIcons name="star" size={16} color={theme.colors.secondary} />
-              <Text style={styles.ratingText}>{(store.rating || 0).toFixed(1)}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.favoriteButton}
-              onPress={async () => {
-                const raw = await AsyncStorage.getItem('customer:favorites');
-                const ids = raw ? JSON.parse(raw) : [];
-                const next = ids.includes(store.store_id)
-                  ? ids.filter((id: string) => id !== store.store_id)
-                  : [...ids, store.store_id];
-                await AsyncStorage.setItem('customer:favorites', JSON.stringify(next));
-                setIsFavorite(next.includes(store.store_id));
-              }}
-            >
-              <MaterialIcons
-                name={isFavorite ? 'favorite' : 'favorite-border'}
-                size={20}
-                color={isFavorite ? theme.colors.secondary : theme.colors.outline}
-              />
-            </TouchableOpacity>
-          </View>
-        </View>
-
-
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Product Availability</Text>
-          <View style={styles.searchBar}>
-            <MaterialIcons name="search" size={18} color={theme.colors.outline} />
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Search products"
-              placeholderTextColor={theme.colors.outline}
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-            />
-          </View>
-        </View>
-
-        <TouchableOpacity 
-          style={styles.directionsButton} 
-          onPress={handleStartRouting}
-        >
-          <MaterialIcons name="navigation" size={20} color={theme.colors.onPrimary} />
-          <Text style={styles.directionsButtonText}>Get Directions</Text>
-        </TouchableOpacity>
-
-        {categories.length === 0 ? (
-          <Text style={styles.emptyText}>No matching products found.</Text>
+        {store.image_url ? (
+          <TouchableOpacity activeOpacity={0.9} onPress={() => setSelectedImage(store.image_url!)}>
+            <Image source={{ uri: store.image_url }} style={styles.headerImage} />
+          </TouchableOpacity>
         ) : (
-          categories.map((category) => (
-            <View key={category.category} style={styles.categoryBlock}>
-              <Text style={styles.categoryTitle}>{category.category}</Text>
-              <View style={styles.chipWrap}>
-                {category.items.map((item) => (
-                  <TouchableOpacity 
-                    key={item.product_id} 
-                    style={styles.chip}
-                    onPress={() => item.image_url && setSelectedImage(item.image_url)}
-                    disabled={!item.image_url}
-                  >
-                    {item.image_url && (
-                      <MaterialIcons name="image" size={14} color={theme.colors.primary} style={{ marginRight: 4 }} />
-                    )}
-                    <Text style={styles.chipText}>{item.name} • ₱{item.selling_price}</Text>
-                  </TouchableOpacity>
-                ))}
+          <View style={styles.headerPlaceholder}>
+            <MaterialIcons name="storefront" size={48} color={theme.colors.primaryContainer} />
+          </View>
+        )}
+
+        <View style={styles.content}>
+          <View style={styles.headerRow}>
+            <View style={styles.titleBlock}>
+              <Text style={styles.storeName}>{store.store_name}</Text>
+              <View style={styles.addressRow}>
+                <MaterialIcons name="place" size={16} color={theme.colors.outline} />
+                <Text style={styles.addressText}>{store.address ?? 'Address not set'}</Text>
+              </View>
+              <View style={styles.addressRow}>
+                <MaterialIcons name="person" size={16} color={theme.colors.outline} />
+                <Text style={styles.addressText}>Owner: {store.owner_name ?? 'Community Member'}</Text>
               </View>
             </View>
-          ))
-        )}
-      </View>
-    </ScrollView>
+            <View style={styles.headerActions}>
+              <TouchableOpacity style={styles.ratingBadge} onPress={() => router.push(`/store/${store.store_id}/reviews`)}>
+                <MaterialIcons name="star" size={16} color={theme.colors.secondary} />
+                <Text style={styles.ratingText}>{(store.rating || 0).toFixed(1)}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.favoriteButton}
+                onPress={async () => {
+                  const raw = await AsyncStorage.getItem('customer:favorites');
+                  const ids = raw ? JSON.parse(raw) : [];
+                  const next = ids.includes(store.store_id)
+                    ? ids.filter((id: string) => id !== store.store_id)
+                    : [...ids, store.store_id];
+                  await AsyncStorage.setItem('customer:favorites', JSON.stringify(next));
+                  setIsFavorite(next.includes(store.store_id));
+                }}
+              >
+                <MaterialIcons
+                  name={isFavorite ? 'favorite' : 'favorite-border'}
+                  size={20}
+                  color={isFavorite ? theme.colors.secondary : theme.colors.outline}
+                />
+              </TouchableOpacity>
+            </View>
+          </View>
+
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Product Availability</Text>
+            <View style={styles.searchBar}>
+              <MaterialIcons name="search" size={18} color={theme.colors.outline} />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search products"
+                placeholderTextColor={theme.colors.outline}
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+              />
+            </View>
+          </View>
+
+          {categories.length === 0 ? (
+            <Text style={styles.emptyText}>No matching products found.</Text>
+          ) : (
+            categories.map((category) => (
+              <View key={category.category} style={styles.categoryBlock}>
+                <Text style={styles.categoryTitle}>{category.category}</Text>
+                <View style={styles.productGrid}>
+                  {category.items.map((item) => (
+                    <TouchableOpacity 
+                      key={item.product_id} 
+                      style={styles.productCard}
+                      onPress={() => item.image_url && setSelectedImage(item.image_url)}
+                      disabled={!item.image_url}
+                    >
+                      <View style={styles.productImageContainer}>
+                        {item.image_url ? (
+                          <Image source={{ uri: item.image_url }} style={styles.productImage} />
+                        ) : (
+                          <MaterialIcons name="inventory-2" size={24} color={theme.colors.outline} />
+                        )}
+                        {item.image_url && (
+                          <View style={styles.imageOverlay}>
+                            <MaterialIcons name="zoom-out-map" size={16} color="#fff" />
+                          </View>
+                        )}
+                      </View>
+                      
+                      <View style={styles.productInfo}>
+                        <Text style={styles.productName} numberOfLines={1}>{item.name}</Text>
+                        <View style={styles.priceBadge}>
+                          <MaterialIcons name="sell" size={12} color={theme.colors.onPrimaryContainer} />
+                          <Text style={styles.priceValue}>₱{item.selling_price.toFixed(2)}</Text>
+                        </View>
+                      </View>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            ))
+          )}
+        </View>
+      </ScrollView>
 
       <View style={styles.bottomNav}>
         <TouchableOpacity style={styles.navItem} onPress={() => router.push('/(customer)')}>
@@ -249,11 +237,9 @@ export default function StoreProfileScreen() {
           </View>
         </TouchableOpacity>
       </Modal>
-
     </View>
   );
 }
-
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
@@ -353,26 +339,6 @@ const styles = StyleSheet.create({
     ...theme.typography.button,
     color: theme.colors.onSurface,
   },
-  actionRow: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  actionButton: {
-    flex: 1,
-    borderRadius: 12,
-    height: 48,
-    backgroundColor: theme.colors.surface,
-    borderWidth: 1,
-    borderColor: theme.colors.surfaceVariant,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-  },
-  actionText: {
-    ...theme.typography.button,
-    color: theme.colors.primaryContainer,
-  },
   sectionHeader: {
     marginTop: 8,
     gap: 12,
@@ -401,30 +367,80 @@ const styles = StyleSheet.create({
     backgroundColor: theme.colors.surface,
     borderRadius: 16,
     padding: 16,
-    gap: 12,
+    gap: 16,
     borderWidth: 1,
     borderColor: theme.colors.surfaceVariant,
   },
   categoryTitle: {
     ...theme.typography.button,
     color: theme.colors.onSurface,
+    fontSize: 16,
+    fontWeight: '700',
   },
-  chipWrap: {
+  productGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 8,
+    gap: 12,
   },
-  chip: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    backgroundColor: theme.colors.surfaceContainerLow,
+  productCard: {
+    width: '48%',
+    backgroundColor: theme.colors.surface,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: theme.colors.surfaceVariant,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 8,
+    elevation: 3,
   },
-  chipText: {
+  productImageContainer: {
+    width: '100%',
+    height: 100,
+    backgroundColor: theme.colors.surfaceContainerLow,
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  productImage: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  imageOverlay: {
+    position: 'absolute',
+    bottom: 8,
+    right: 8,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 12,
+    padding: 4,
+  },
+  productInfo: {
+    padding: 12,
+    gap: 8,
+  },
+  productName: {
     ...theme.typography.labelMedium,
     color: theme.colors.onSurface,
+    fontWeight: '700',
+    fontSize: 14,
+  },
+  priceBadge: {
+    backgroundColor: theme.colors.primaryContainer,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  priceValue: {
+    ...theme.typography.labelMedium,
+    color: theme.colors.onPrimaryContainer,
+    fontWeight: '800',
+    fontSize: 13,
   },
   bottomNav: {
     height: 80,
@@ -436,6 +452,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-around',
     alignItems: 'center',
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
   },
   navItem: {
     alignItems: 'center',
@@ -478,25 +498,5 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.5)',
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  directionsButton: {
-    backgroundColor: theme.colors.primaryContainer,
-    height: 54,
-    borderRadius: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    shadowColor: theme.colors.primaryContainer,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 8,
-    elevation: 4,
-    marginTop: 8,
-  },
-  directionsButtonText: {
-    ...theme.typography.button,
-    color: theme.colors.onPrimary,
-    fontSize: 16,
   },
 });
